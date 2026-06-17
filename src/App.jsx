@@ -272,9 +272,9 @@ function App() {
             <h1>Folhas de pagamento Florybal</h1>
           </div>
           <div className="actions">
-            <button className="secondary-action" onClick={() => exportRows(filtered)} title="Exportar visão filtrada em CSV">
+            <button className="secondary-action" onClick={() => exportWorkbook(filtered)} title="Exportar visão filtrada em Excel com abas">
               <Download size={18} />
-              CSV
+              Excel
             </button>
             <button className="icon-button" onClick={loadData} title="Recarregar dados">
               <RefreshCw size={18} />
@@ -1118,35 +1118,375 @@ function Audit({ dataset, analytics, importHistory }) {
   );
 }
 
-function exportRows(rows) {
-  const headers = ["periodo", "filial", "contrato", "nome", "cargo", "admissao", "rescisao", "bruto", "descontos", "liquido", "horas_extras", "faltas_atrasos_horas", "faltas_atrasos_valor", "variaveis", "consignado", "ferias"];
-  const csvRows = rows.map((item) => [
-    item.period.label,
-    branchLabel(item.branch),
-    item.contract,
-    item.name,
-    item.jobTitle,
-    item.admissionDate || "",
-    item.resignationDate || "",
-    item.totals.gross,
-    item.totals.discounts,
-    item.totals.net,
-    item.overtime.hours,
-    item.absence?.hours || 0,
-    item.absence?.value || 0,
-    item.variables?.value || 0,
-    item.loans.value,
-    item.vacation.cost,
-  ]);
-  const escape = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
-  const content = [headers, ...csvRows].map((row) => row.map(escape).join(";")).join("\n");
-  const blob = new Blob([`\ufeff${content}`], { type: "text/csv;charset=utf-8" });
+async function exportWorkbook(rows) {
+  const { default: ExcelJS } = await import("exceljs");
+  const analytics = buildAnalytics(rows);
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Florybal RH BI";
+  workbook.created = new Date();
+  workbook.modified = new Date();
+
+  addSheet(
+    workbook,
+    "Resumo",
+    [
+      { header: "Indicador", key: "metric", width: 30 },
+      { header: "Valor", key: "value", width: 22 },
+      { header: "Tipo", key: "type", width: 8 },
+    ],
+    [
+      { metric: "Funcionarios unicos", value: analytics.employees, type: "number" },
+      { metric: "Registros de folha", value: analytics.records, type: "number" },
+      { metric: "Folha bruta", value: analytics.payroll, type: "currency" },
+      { metric: "Descontos", value: analytics.discounts, type: "currency" },
+      { metric: "Liquido", value: analytics.net, type: "currency" },
+      { metric: "Admissoes", value: analytics.admissions.length, type: "number" },
+      { metric: "Rescisoes", value: analytics.resignations.length, type: "number" },
+      { metric: "Alertas", value: analytics.alerts.length, type: "number" },
+      { metric: "Horas extras 50%", value: analytics.overtimeTotals.hours50, type: "number" },
+      { metric: "Horas extras 100%", value: analytics.overtimeTotals.hours100, type: "number" },
+    ],
+    { specialSummaryFormatting: true },
+  );
+
+  addSheet(
+    workbook,
+    "Resumo Mes",
+    [
+      { header: "Periodo", key: "period", width: 12 },
+      { header: "Funcionarios", key: "employees", width: 14 },
+      { header: "Admissoes", key: "admissions", width: 12 },
+      { header: "Rescisoes", key: "resignations", width: 12 },
+      { header: "Bruto", key: "gross", width: 16 },
+      { header: "Descontos", key: "discounts", width: 16 },
+      { header: "Liquido", key: "net", width: 16 },
+      { header: "HE 50 h", key: "overtime50Hours", width: 12 },
+      { header: "HE 50 valor", key: "overtime50Value", width: 16 },
+      { header: "HE 100 h", key: "overtime100Hours", width: 12 },
+      { header: "HE 100 valor", key: "overtime100Value", width: 16 },
+      { header: "Faltas/Atrasos h", key: "absenceHours", width: 16 },
+      { header: "Faltas/Atrasos valor", key: "absenceValue", width: 18 },
+      { header: "Consignados", key: "loans", width: 16 },
+      { header: "Ferias", key: "vacations", width: 16 },
+    ],
+    analytics.byMonth.map((item) => ({
+      period: item.label,
+      employees: item.employees,
+      admissions: item.admissions,
+      resignations: item.resignations,
+      gross: item.gross,
+      discounts: item.discounts,
+      net: item.net,
+      overtime50Hours: item.overtime50Hours,
+      overtime50Value: item.overtime50Value,
+      overtime100Hours: item.overtime100Hours,
+      overtime100Value: item.overtime100Value,
+      absenceHours: item.absenceHours,
+      absenceValue: item.absenceValue,
+      loans: item.loans,
+      vacations: item.vacations,
+    })),
+    { currencyKeys: new Set(["gross", "discounts", "net", "overtime50Value", "overtime100Value", "absenceValue", "loans", "vacations"]) },
+  );
+
+  addSheet(workbook, "Funcionarios", baseColumns(), rows.map(baseEmployeeRow), {
+    currencyKeys: new Set(["gross", "discounts", "net", "salary", "overtimeValue", "absenceValue", "variablesValue", "loansValue", "vacationCost"]),
+    dateKeys: new Set(["admissionDate", "resignationDate", "vacationStart", "vacationEnd"]),
+  });
+
+  addSheet(workbook, "Admissoes", movementColumns("Admissao"), analytics.admissions.map((item) => movementRow(item, "admissionDate")), { dateKeys: new Set(["date"]) });
+  addSheet(workbook, "Rescisoes", movementColumns("Rescisao"), analytics.resignations.map((item) => movementRow(item, "resignationDate")), { dateKeys: new Set(["date"]) });
+
+  addSheet(
+    workbook,
+    "Horas Extras",
+    [
+      ...personColumns(),
+      { header: "HE 50 h", key: "hours50", width: 12 },
+      { header: "HE 50 valor", key: "value50", width: 16 },
+      { header: "HE 100 h", key: "hours100", width: 12 },
+      { header: "HE 100 valor", key: "value100", width: 16 },
+      { header: "Total h", key: "totalHours", width: 12 },
+      { header: "Total valor", key: "totalValue", width: 16 },
+    ],
+    analytics.overtimeTop.map((item) => ({
+      period: item.period,
+      branch: item.branch,
+      contract: item.contract,
+      name: item.name,
+      jobTitle: item.jobTitle || "",
+      hours50: item.hours50,
+      value50: item.value50,
+      hours100: item.hours100,
+      value100: item.value100,
+      totalHours: item.totalHours,
+      totalValue: item.totalValue,
+    })),
+    { currencyKeys: new Set(["value50", "value100", "totalValue"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Faltas Atrasos",
+    [
+      ...personColumns(),
+      { header: "Nivel", key: "level", width: 12 },
+      { header: "Horas", key: "hours", width: 12 },
+      { header: "Valor", key: "value", width: 16 },
+    ],
+    analytics.absenceTop.map((item) => ({
+      period: item.period,
+      branch: item.branch,
+      contract: item.contract,
+      name: item.name,
+      jobTitle: item.jobTitle || "",
+      level: item.level || "-",
+      hours: item.hours,
+      value: item.value,
+    })),
+    { currencyKeys: new Set(["value"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Variaveis",
+    [
+      ...personColumns(),
+      { header: "Comissoes", key: "commissions", width: 16 },
+      { header: "Premios", key: "premiums", width: 16 },
+      { header: "Adicionais", key: "additionals", width: 16 },
+      { header: "Total", key: "total", width: 16 },
+    ],
+    analytics.variableTop.map((item) => ({
+      period: item.period,
+      branch: item.branch,
+      contract: item.contract,
+      name: item.name,
+      jobTitle: item.jobTitle || "",
+      commissions: item.commissions,
+      premiums: item.premiums,
+      additionals: item.additionals,
+      total: item.total,
+    })),
+    { currencyKeys: new Set(["commissions", "premiums", "additionals", "total"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Ferias",
+    [
+      ...personColumns(),
+      { header: "Saida", key: "vacationStart", width: 13 },
+      { header: "Retorno", key: "vacationEnd", width: 13 },
+      { header: "Dias", key: "vacationDays", width: 10 },
+      { header: "Custo", key: "vacationCost", width: 16 },
+    ],
+    analytics.vacations.map((item) => ({
+      period: item.period?.label,
+      branch: branchLabel(item.branch),
+      contract: item.contract,
+      name: item.name,
+      jobTitle: item.jobTitle || "",
+      vacationStart: excelDate(item.vacation?.start),
+      vacationEnd: excelDate(item.vacation?.end),
+      vacationDays: item.vacation?.days || "",
+      vacationCost: item.vacation?.cost || 0,
+    })),
+    { currencyKeys: new Set(["vacationCost"]), dateKeys: new Set(["vacationStart", "vacationEnd"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Consignados",
+    [...personColumns(), { header: "Valor", key: "loansValue", width: 16 }],
+    analytics.loans.map((item) => ({
+      period: item.period?.label,
+      branch: branchLabel(item.branch),
+      contract: item.contract,
+      name: item.name,
+      jobTitle: item.jobTitle || "",
+      loansValue: item.loans?.value || 0,
+    })),
+    { currencyKeys: new Set(["loansValue"]) },
+  );
+
+  addSheet(workbook, "Encargos", [
+    { header: "Encargo", key: "name", width: 24 },
+    { header: "Valor", key: "value", width: 18 },
+  ], analytics.charges, { currencyKeys: new Set(["value"]) });
+
+  addSheet(
+    workbook,
+    "Eventos",
+    [
+      ...personColumns(),
+      { header: "Codigo", key: "code", width: 12 },
+      { header: "Descricao", key: "description", width: 34 },
+      { header: "Quantidade", key: "quantity", width: 14 },
+      { header: "Valor", key: "value", width: 16 },
+      { header: "Tipo", key: "kind", width: 18 },
+    ],
+    rows.flatMap((item) => (item.events || []).map((event) => ({
+      period: item.period?.label,
+      branch: branchLabel(item.branch),
+      contract: item.contract,
+      name: item.name,
+      jobTitle: item.jobTitle || "",
+      code: event.code,
+      description: event.description,
+      quantity: event.quantity ?? "",
+      value: event.value || 0,
+      kind: overtimeKind(event) ? `Hora extra ${overtimeKind(event)}%` : absenceKind(event) || variableKind(event) || "",
+    }))),
+    { currencyKeys: new Set(["value"]) },
+  );
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "florybal-rh-bi-filtrado.csv";
+  link.download = `florybal-rh-bi-${new Date().toISOString().slice(0, 10)}.xlsx`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function addSheet(workbook, name, columns, rows, options = {}) {
+  const sheet = workbook.addWorksheet(name);
+  sheet.columns = columns;
+  sheet.addRows(rows);
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = {
+    from: { row: 1, column: 1 },
+    to: { row: Math.max(1, sheet.rowCount), column: columns.length },
+  };
+
+  const header = sheet.getRow(1);
+  header.height = 22;
+  header.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+    cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    cell.border = thinBorder();
+  });
+
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    row.height = 20;
+    row.eachCell((cell, columnNumber) => {
+      const key = columns[columnNumber - 1]?.key;
+      cell.border = thinBorder("FFE2E8F0");
+      cell.alignment = { vertical: "middle", wrapText: false };
+      if (rowNumber % 2 === 0) {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+      }
+      if (options.currencyKeys?.has(key)) cell.numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+      if (options.dateKeys?.has(key) && cell.value) cell.numFmt = "dd/mm/yyyy";
+      if (typeof cell.value === "number" && !options.currencyKeys?.has(key)) cell.numFmt = "#,##0.00";
+      if (options.specialSummaryFormatting && key === "value") {
+        const type = sheet.getRow(rowNumber).getCell("C").value;
+        if (type === "currency") cell.numFmt = '"R$" #,##0.00;[Red]-"R$" #,##0.00';
+        if (type === "number") cell.numFmt = "#,##0.00";
+      }
+    });
+  });
+
+  if (options.specialSummaryFormatting) {
+    sheet.getColumn("C").hidden = true;
+  }
+}
+
+function thinBorder(color = "FFCBD5E1") {
+  return {
+    top: { style: "thin", color: { argb: color } },
+    left: { style: "thin", color: { argb: color } },
+    bottom: { style: "thin", color: { argb: color } },
+    right: { style: "thin", color: { argb: color } },
+  };
+}
+
+function excelDate(value) {
+  if (!value) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function personColumns() {
+  return [
+    { header: "Periodo", key: "period", width: 12 },
+    { header: "Matriz/Filial", key: "branch", width: 28 },
+    { header: "Contrato", key: "contract", width: 12 },
+    { header: "Funcionario", key: "name", width: 32 },
+    { header: "Cargo", key: "jobTitle", width: 28 },
+  ];
+}
+
+function baseColumns() {
+  return [
+    ...personColumns(),
+    { header: "Admissao", key: "admissionDate", width: 13 },
+    { header: "Rescisao", key: "resignationDate", width: 13 },
+    { header: "Salario", key: "salary", width: 16 },
+    { header: "Bruto", key: "gross", width: 16 },
+    { header: "Descontos", key: "discounts", width: 16 },
+    { header: "Liquido", key: "net", width: 16 },
+    { header: "HE h", key: "overtimeHours", width: 12 },
+    { header: "HE valor", key: "overtimeValue", width: 16 },
+    { header: "Faltas/Atrasos h", key: "absenceHours", width: 16 },
+    { header: "Faltas/Atrasos valor", key: "absenceValue", width: 18 },
+    { header: "Variaveis", key: "variablesValue", width: 16 },
+    { header: "Consignado", key: "loansValue", width: 16 },
+    { header: "Ferias", key: "vacationCost", width: 16 },
+    { header: "Inicio Ferias", key: "vacationStart", width: 13 },
+    { header: "Fim Ferias", key: "vacationEnd", width: 13 },
+    { header: "Dias Ferias", key: "vacationDays", width: 12 },
+    { header: "Alertas", key: "validation", width: 42 },
+  ];
+}
+
+function baseEmployeeRow(item) {
+  return {
+    period: item.period?.label,
+    branch: branchLabel(item.branch),
+    contract: item.contract,
+    name: item.name,
+    jobTitle: item.jobTitle || "",
+    admissionDate: excelDate(item.admissionDate),
+    resignationDate: excelDate(item.resignationDate),
+    salary: item.totals?.salary || 0,
+    gross: item.totals?.gross || 0,
+    discounts: item.totals?.discounts || 0,
+    net: item.totals?.net || 0,
+    overtimeHours: item.overtime?.hours || 0,
+    overtimeValue: item.overtime?.value || 0,
+    absenceHours: item.absence?.hours || 0,
+    absenceValue: item.absence?.value || 0,
+    variablesValue: item.variables?.value || 0,
+    loansValue: item.loans?.value || 0,
+    vacationCost: item.vacation?.cost || 0,
+    vacationStart: excelDate(item.vacation?.start),
+    vacationEnd: excelDate(item.vacation?.end),
+    vacationDays: item.vacation?.days || "",
+    validation: (item.validation || []).join("; "),
+  };
+}
+
+function movementColumns(label) {
+  return [
+    { header: label, key: "date", width: 13 },
+    ...personColumns(),
+  ];
+}
+
+function movementRow(item, dateField) {
+  return {
+    date: excelDate(item[dateField]),
+    period: item.period?.label,
+    branch: branchLabel(item.branch),
+    contract: item.contract,
+    name: item.name,
+    jobTitle: item.jobTitle || "",
+  };
 }
 
 function PeopleTable({ rows, dateField, empty }) {
@@ -1199,7 +1539,7 @@ function DataTable({ columns, rows, empty = "Nenhum registro no filtro.", limit 
           </div>
         </article>
       ))}
-      {rows.length > limit && <div className="table-note">Mostrando {limit} de {rows.length.toLocaleString("pt-BR")} registros. Use filtros ou exporte CSV para a base completa.</div>}
+      {rows.length > limit && <div className="table-note">Mostrando {limit} de {rows.length.toLocaleString("pt-BR")} registros. Use filtros ou exporte Excel para a base completa.</div>}
     </div>
   );
 }
