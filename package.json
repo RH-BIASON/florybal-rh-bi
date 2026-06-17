@@ -1,0 +1,29 @@
+{
+  "name": "florybal-rh-bi",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"vite --host 127.0.0.1 --port 5173\" \"node server/index.js\"",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "parse": "python scripts/parse_payroll.py \"FOPAG Florybal 122025.pdf\" \"FOPAG Florybal 012026.pdf\" \"FOPAG Florybal 022026.pdf\" \"FOPAG Florybal 032026.pdf\" \"FOPAG Florybal 042026.pdf\" --out data/payroll.json",
+    "test:parser": "python -m unittest scripts.test_parser",
+    "audit:values": "python scripts/audit_payroll_values.py",
+    "smoke:supabase": "node scripts/smoke_supabase.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "lucide-react": "^0.561.0",
+    "multer": "^2.0.2",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "recharts": "^3.5.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "concurrently": "^9.2.1",
+    "vite": "^7.3.0"
+  }
+}

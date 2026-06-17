@@ -1,0 +1,33 @@
+{
+  "overtime": [
+    { "kind": "50", "codes": ["00025", "00096"], "descriptionIncludes": ["horas extras", "50%"] },
+    { "kind": "100", "codes": ["00026", "00097"], "descriptionIncludes": ["100%"] }
+  ],
+  "absence": [
+    { "kind": "Faltas", "codes": ["00201"], "descriptionIncludes": ["faltas"] },
+    { "kind": "Atrasos", "codes": ["00202"], "descriptionIncludes": ["atrasos"] },
+    { "kind": "Repouso descontado", "codes": ["00203"], "descriptionIncludes": ["repousos descontados"] }
+  ],
+  "variables": [
+    { "kind": "Comissões", "descriptionIncludes": ["comiss"] },
+    { "kind": "Prêmios e bonificações", "descriptionIncludesAny": ["prêmio", "premio", "bonificação", "bonificacao"] },
+    { "kind": "Adicionais", "descriptionIncludesAny": ["adicional", "adic.", "gerencia", "gerência", "quebra de caixa", "tempo de serviço", "tempo de serv", "periculosidade", "insalubridade", "noturno", "noturna", "noturnas"] }
+  ],
+  "loans": [
+    { "kind": "Consignado", "descriptionIncludes": ["consign"] }
+  ],
+  "vacations": [
+    { "kind": "Férias", "descriptionIncludesAny": ["férias", "ferias"] }
+  ],
+  "known_other": [
+    { "kind": "Salário e pró-labore", "descriptionIncludesAny": ["salário", "salario", "pró-labore", "pro-labore"] },
+    { "kind": "Adiantamentos", "descriptionIncludesAny": ["adiantamento", "adiant.", "adto.", "insuficiência de saldo", "insuficiencia de saldo"] },
+    { "kind": "Encargos e impostos", "descriptionIncludesAny": ["inss", "i.r.f", "irf", "fgts", "ratxfap", "terceiros", "gps"] },
+    { "kind": "Benefícios e descontos", "descriptionIncludesAny": ["refeições", "refeicoes", "plano de saúde", "plano de saude", "sindicato", "pensão", "pensao", "auxílio", "auxilio", "vale-transporte", "contribuição", "contribuicao"] },
+    { "kind": "Rescisórios", "descriptionIncludesAny": ["aviso prévio", "aviso previo", "aviso prév", "indeniza", "art. 479"] },
+    { "kind": "13º", "descriptionIncludesAny": ["13º", "13o"] },
+    { "kind": "Afastamentos", "descriptionIncludesAny": ["maternidade", "doença", "doenca", "afastamento"] },
+    { "kind": "Repousos e médias", "descriptionIncludesAny": ["repouso", "média", "media", "dsr", "fér.ind", "fer.ind", "férias indenizadas", "ferias indenizadas", "bonf.dom"] },
+    { "kind": "Ajustes operacionais", "descriptionIncludesAny": ["restituição", "restituicao", "arredondamento"] }
+  ]
+}
