@@ -3,6 +3,9 @@
     { "kind": "50", "codes": ["00025", "00096"], "descriptionIncludes": ["horas extras", "50%"] },
     { "kind": "100", "codes": ["00026", "00097"], "descriptionIncludes": ["100%"] }
   ],
+  "overtime_reflexes": [
+    { "kind": "Reflexo HE", "codes": ["00030", "00058", "00065", "00076", "00077", "15006", "16006", "17006"], "descriptionIncludesAny": ["repouso s/horas extras", "média de horas extras", "media de horas extras", "hrs extras", "h.ext", "hr.extra", "h.extras", "s/horas extras"] }
+  ],
   "absence": [
     { "kind": "Faltas", "codes": ["00201"], "descriptionIncludes": ["faltas"] },
     { "kind": "Atrasos", "codes": ["00202"], "descriptionIncludes": ["atrasos"] },

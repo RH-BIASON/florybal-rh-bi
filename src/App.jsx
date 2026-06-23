@@ -31,7 +31,7 @@ import {
 } from "recharts";
 
 const chargeLabels = {
-  inss_employee: "INSS funcionário",
+  inss_employee: "INSS colaborador",
   inss_company: "INSS empresa",
   fgts: "FGTS",
   rat_fap: "RAT x FAP",
@@ -97,6 +97,29 @@ function overtimeKind(event) {
     return "100";
   }
   return null;
+}
+
+function overtimeReflectionKind(event) {
+  const description = event.description.toLowerCase();
+  if (["00030", "00058", "00065", "00076", "00077", "15006", "16006", "17006"].includes(event.code)) return "Reflexo HE";
+  if (
+    description.includes("repouso s/horas extras") ||
+    description.includes("média de horas extras") ||
+    description.includes("media de horas extras") ||
+    description.includes("hrs extras") ||
+    description.includes("h.ext") ||
+    description.includes("hr.extra") ||
+    description.includes("h.extras") ||
+    description.includes("s/horas extras")
+  ) {
+    return "Reflexo HE";
+  }
+  return null;
+}
+
+function overtimeReflectionValue(item) {
+  if (typeof item.overtime?.reflexValue === "number") return item.overtime.reflexValue;
+  return sum(item.events || [], (event) => (overtimeReflectionKind(event) ? event.value : 0));
 }
 
 function absenceKind(event) {
@@ -344,7 +367,7 @@ function App() {
           <div className="utility-stack">
             <label className="search">
               <Search size={17} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar funcionário, contrato ou cargo" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar colaborador, contrato ou cargo" />
             </label>
             <label
               className={dragActive ? "dropzone active" : "dropzone"}
@@ -422,6 +445,7 @@ function buildAnalytics(rows) {
         overtime50Value: 0,
         overtime100Hours: 0,
         overtime100Value: 0,
+        overtimeReflectionValue: 0,
         absenceHours: 0,
         absenceValue: 0,
         absenceYellow: 0,
@@ -476,6 +500,7 @@ function buildAnalytics(rows) {
 
     for (const event of item.events || []) {
       const kind = overtimeKind(event);
+      const reflection = overtimeReflectionKind(event);
       const variable = variableKind(event);
       if (variable) {
         const value = event.value || 0;
@@ -503,6 +528,30 @@ function buildAnalytics(rows) {
         if (variable === "Adicionais") variableTop.additionals += value;
         variableTop.total += value;
       }
+      if (reflection) {
+        const value = event.value || 0;
+        monthRow.overtimeReflectionValue += value;
+        const topKey = `${item.branch?.code}-${item.contract}-${item.name}`;
+        if (!overtimeTopMap.has(topKey)) {
+          overtimeTopMap.set(topKey, {
+            contract: item.contract,
+            name: item.name,
+            branch: item.branch?.label,
+            branchCode: item.branch?.code,
+            jobTitle: item.jobTitle,
+            hours50: 0,
+            value50: 0,
+            hours100: 0,
+            value100: 0,
+            reflectionValue: 0,
+            totalHours: 0,
+            totalValue: 0,
+          });
+        }
+        const top = overtimeTopMap.get(topKey);
+        top.reflectionValue += value;
+        top.totalValue += value;
+      }
       if (!kind) continue;
       const hours = event.quantity || 0;
       const value = event.value || 0;
@@ -525,6 +574,7 @@ function buildAnalytics(rows) {
           value50: 0,
           hours100: 0,
           value100: 0,
+          reflectionValue: 0,
           totalHours: 0,
           totalValue: 0,
         });
@@ -564,6 +614,7 @@ function buildAnalytics(rows) {
       value50: Number(item.value50.toFixed(2)),
       hours100: Number(item.hours100.toFixed(2)),
       value100: Number(item.value100.toFixed(2)),
+      reflectionValue: Number((item.reflectionValue || 0).toFixed(2)),
       totalHours: Number(item.totalHours.toFixed(2)),
       totalValue: Number(item.totalValue.toFixed(2)),
     }))
@@ -594,8 +645,9 @@ function buildAnalytics(rows) {
       value50: total.value50 + item.overtime50Value,
       hours100: total.hours100 + item.overtime100Hours,
       value100: total.value100 + item.overtime100Value,
+      reflectionValue: total.reflectionValue + item.overtimeReflectionValue,
     }),
-    { hours50: 0, value50: 0, hours100: 0, value100: 0 },
+    { hours50: 0, value50: 0, hours100: 0, value100: 0, reflectionValue: 0 },
   );
 
   return { rows, records, employees, payroll, net, discounts, admissions, resignations, loans, vacations, alerts, byMonth, byBranch, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop };
@@ -636,7 +688,7 @@ function togglePeriod(period, mode, setter) {
 function KpiStrip({ analytics }) {
   return (
     <section className="kpis">
-      <Kpi icon={Users} label="Funcionários" value={analytics.employees.toLocaleString("pt-BR")} />
+      <Kpi icon={Users} label="Colaboradores" value={analytics.employees.toLocaleString("pt-BR")} />
       <Kpi icon={FileUp} label="Registros folha" value={analytics.records.toLocaleString("pt-BR")} />
       <Kpi icon={BriefcaseBusiness} label="Folha bruta" value={compactCurrency(analytics.payroll)} title={currency(analytics.payroll)} />
       <Kpi icon={TrendingUp} label="Líquido" value={compactCurrency(analytics.net)} title={currency(analytics.net)} />
@@ -704,13 +756,13 @@ function Overview({ analytics }) {
       </Panel>
       <Panel title="Resumo por competência" icon={CalendarDays} wide>
         <DataTable
-          columns={["Mês", "Funcionários", "Admissões", "Rescisões", "Bruto", "Líquido", "Consignados"]}
+          columns={["Mês", "Colaboradores", "Admissões", "Rescisões", "Bruto", "Líquido", "Consignados"]}
           rows={analytics.byMonth.map((item) => [item.label, item.employees, item.admissions, item.resignations, currency(item.gross), currency(item.net), currency(item.loans)])}
         />
       </Panel>
       <Panel title="Todas as filiais no filtro" icon={Landmark} wide>
         <DataTable
-          columns={["Filial", "Funcionários", "Bruto", "Líquido", "Admissões", "Rescisões", "Consignados", "Férias"]}
+          columns={["Filial", "Colaboradores", "Bruto", "Líquido", "Admissões", "Rescisões", "Consignados", "Férias"]}
           rows={analytics.byBranch.map((item) => [
             item.branch,
             item.employees,
@@ -760,6 +812,8 @@ function Overtime({ analytics }) {
     currency(item.overtime50Value),
     formatHours(item.overtime100Hours),
     currency(item.overtime100Value),
+    currency(item.overtimeReflectionValue),
+    currency(item.overtime50Value + item.overtime100Value + item.overtimeReflectionValue),
   ]);
   return (
     <section className="grid two">
@@ -767,7 +821,8 @@ function Overtime({ analytics }) {
         <div className="metric-inline">
           <div><span>HE 50%</span><strong>{formatHours(analytics.overtimeTotals.hours50)}</strong><small>{currency(analytics.overtimeTotals.value50)}</small></div>
           <div><span>HE 100%</span><strong>{formatHours(analytics.overtimeTotals.hours100)}</strong><small>{currency(analytics.overtimeTotals.value100)}</small></div>
-          <div><span>Total HE</span><strong>{formatHours(analytics.overtimeTotals.hours50 + analytics.overtimeTotals.hours100)}</strong><small>{currency(analytics.overtimeTotals.value50 + analytics.overtimeTotals.value100)}</small></div>
+          <div><span>Reflexos HE</span><strong>{compactCurrency(analytics.overtimeTotals.reflectionValue)}</strong><small>DSR, médias e rescisórios</small></div>
+          <div><span>Total HE</span><strong>{formatHours(analytics.overtimeTotals.hours50 + analytics.overtimeTotals.hours100)}</strong><small>{currency(analytics.overtimeTotals.value50 + analytics.overtimeTotals.value100 + analytics.overtimeTotals.reflectionValue)}</small></div>
         </div>
       </Panel>
       <Panel title="Horas extras mês a mês" icon={TrendingUp} wide>
@@ -793,14 +848,15 @@ function Overtime({ analytics }) {
             <Legend />
             <Bar dataKey="overtime50Value" name="Valor 50%" fill="#2563eb" radius={[4, 4, 0, 0]} />
             <Bar dataKey="overtime100Value" name="Valor 100%" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="overtimeReflectionValue" name="Reflexos HE" fill="#0f766e" radius={[4, 4, 0, 0]} />
           </BarChart>
         </Chart>
       </Panel>
       <Panel title="Top 5 mais horas extras" icon={AlertTriangle}>
         <OvertimeRanking rows={analytics.overtimeTop} />
       </Panel>
-      <Panel title="Resumo mensal 50% e 100%" icon={CalendarDays} wide>
-        <DataTable columns={["Mês", "HE 50%", "Valor 50%", "HE 100%", "Valor 100%"]} rows={overtimeRows} />
+      <Panel title="Resumo mensal 50%, 100% e reflexos" icon={CalendarDays} wide>
+        <DataTable columns={["Mês", "HE 50%", "Valor 50%", "HE 100%", "Valor 100%", "Reflexos HE", "Total valor"]} rows={overtimeRows} />
       </Panel>
     </section>
   );
@@ -824,6 +880,7 @@ function OvertimeRanking({ rows }) {
             <div><span>Total</span><strong>{formatHours(item.totalHours)}</strong></div>
             <div><span>50%</span><strong>{formatHours(item.hours50)}</strong></div>
             <div><span>100%</span><strong>{formatHours(item.hours100)}</strong></div>
+            <div><span>Reflexos</span><strong>{currency(item.reflectionValue || 0)}</strong></div>
             <div><span>Valor</span><strong>{currency(item.totalValue)}</strong></div>
           </div>
         </article>
@@ -889,10 +946,10 @@ function Attendance({ analytics }) {
         <DataTable columns={["Mês", "Horas", "Valor", "Amarelos", "Vermelhos"]} rows={monthlyRows} />
       </Panel>
       <Panel title="Maiores ocorrências no filtro" icon={ShieldAlert}>
-        <DataTable columns={["Nível", "Mês", "Matriz/Filial", "Contrato", "Funcionário", "Horas", "Valor"]} rows={topRows} limit={10} />
+        <DataTable columns={["Nível", "Mês", "Matriz/Filial", "Contrato", "Colaborador", "Horas", "Valor"]} rows={topRows} limit={10} />
       </Panel>
       <Panel title="Alertas para ação no mês" icon={AlertTriangle} wide>
-        <DataTable columns={["Nível", "Mês", "Matriz/Filial", "Contrato", "Funcionário", "Horas", "Valor"]} rows={alertRows} empty="Sem alertas de faltas/atrasos no filtro." limit={120} />
+        <DataTable columns={["Nível", "Mês", "Matriz/Filial", "Contrato", "Colaborador", "Horas", "Valor"]} rows={alertRows} empty="Sem alertas de faltas/atrasos no filtro." limit={120} />
       </Panel>
     </section>
   );
@@ -946,8 +1003,19 @@ function Variables({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
-      <Panel title="Top funcionários por variável" icon={Users}>
-        <DataTable columns={["Matriz/Filial", "Contrato", "Funcionário", "Comissões", "Prêmios", "Adicionais", "Total"]} rows={topRows} limit={10} />
+      <Panel title="Critérios das variáveis" icon={ClipboardCheck}>
+        <DataTable
+          columns={["Grupo", "O que entra"]}
+          rows={[
+            ["Comissões", "Verbas com descrição contendo comiss, incluindo comissões e repouso sobre comissões."],
+            ["Prêmios e bonificações", "Prêmio, premio, bonificação e bonificacao, incluindo produtividade, domingo e feriado."],
+            ["Adicionais", "Adicional, adic., gerência, quebra de caixa, tempo de serviço, periculosidade, insalubridade e noturno."],
+          ]}
+          limit={10}
+        />
+      </Panel>
+      <Panel title="Top colaboradores por variável" icon={Users}>
+        <DataTable columns={["Matriz/Filial", "Contrato", "Colaborador", "Comissões", "Prêmios", "Adicionais", "Total"]} rows={topRows} limit={10} />
       </Panel>
     </section>
   );
@@ -972,7 +1040,7 @@ function Charges({ analytics }) {
       </Panel>
       <Panel title="Encargos por competência" icon={CalendarDays} wide>
         <DataTable
-          columns={["Mês", "INSS func.", "INSS empresa", "FGTS", "RAT x FAP", "Terceiros", "GPS", "IRRF"]}
+          columns={["Mês", "INSS colab.", "INSS empresa", "FGTS", "RAT x FAP", "Terceiros", "GPS", "IRRF"]}
           rows={analytics.byMonth.map((item) => [
             item.label,
             currency(item.charges.inss_employee),
@@ -1015,11 +1083,11 @@ function Benefits({ analytics }) {
         </Chart>
       </Panel>
       <Panel title="Empréstimos consignados" icon={Banknote}>
-        <DataTable columns={["Contrato", "Funcionário", "Matriz/Filial", "Mês", "Valor"]} rows={analytics.loans.slice(0, 80).map((item) => [item.contract, item.name, branchLabel(item.branch), item.period.label, currency(item.loans.value)])} />
+        <DataTable columns={["Contrato", "Colaborador", "Matriz/Filial", "Mês", "Valor"]} rows={analytics.loans.slice(0, 80).map((item) => [item.contract, item.name, branchLabel(item.branch), item.period.label, currency(item.loans.value)])} />
       </Panel>
       <Panel title="Férias" icon={CalendarDays}>
         <DataTable
-          columns={["Funcionário", "Matriz/Filial", "Saída", "Dias", "Custo"]}
+          columns={["Colaborador", "Matriz/Filial", "Saída", "Dias", "Custo"]}
           rows={analytics.vacations.slice(0, 80).map((item) => [item.name, branchLabel(item.branch), shortDate(item.vacation.start), item.vacation.days || "-", currency(item.vacation.cost)])}
         />
       </Panel>
@@ -1135,7 +1203,7 @@ async function exportWorkbook(rows) {
       { header: "Tipo", key: "type", width: 8 },
     ],
     [
-      { metric: "Funcionarios unicos", value: analytics.employees, type: "number" },
+      { metric: "Colaboradores unicos", value: analytics.employees, type: "number" },
       { metric: "Registros de folha", value: analytics.records, type: "number" },
       { metric: "Folha bruta", value: analytics.payroll, type: "currency" },
       { metric: "Descontos", value: analytics.discounts, type: "currency" },
@@ -1145,6 +1213,7 @@ async function exportWorkbook(rows) {
       { metric: "Alertas", value: analytics.alerts.length, type: "number" },
       { metric: "Horas extras 50%", value: analytics.overtimeTotals.hours50, type: "number" },
       { metric: "Horas extras 100%", value: analytics.overtimeTotals.hours100, type: "number" },
+      { metric: "Reflexos HE", value: analytics.overtimeTotals.reflectionValue, type: "currency" },
     ],
     { specialSummaryFormatting: true },
   );
@@ -1154,7 +1223,7 @@ async function exportWorkbook(rows) {
     "Resumo Mes",
     [
       { header: "Periodo", key: "period", width: 12 },
-      { header: "Funcionarios", key: "employees", width: 14 },
+      { header: "Colaboradores", key: "employees", width: 14 },
       { header: "Admissoes", key: "admissions", width: 12 },
       { header: "Rescisoes", key: "resignations", width: 12 },
       { header: "Bruto", key: "gross", width: 16 },
@@ -1164,6 +1233,7 @@ async function exportWorkbook(rows) {
       { header: "HE 50 valor", key: "overtime50Value", width: 16 },
       { header: "HE 100 h", key: "overtime100Hours", width: 12 },
       { header: "HE 100 valor", key: "overtime100Value", width: 16 },
+      { header: "Reflexos HE", key: "overtimeReflectionValue", width: 16 },
       { header: "Faltas/Atrasos h", key: "absenceHours", width: 16 },
       { header: "Faltas/Atrasos valor", key: "absenceValue", width: 18 },
       { header: "Consignados", key: "loans", width: 16 },
@@ -1181,16 +1251,17 @@ async function exportWorkbook(rows) {
       overtime50Value: item.overtime50Value,
       overtime100Hours: item.overtime100Hours,
       overtime100Value: item.overtime100Value,
+      overtimeReflectionValue: item.overtimeReflectionValue,
       absenceHours: item.absenceHours,
       absenceValue: item.absenceValue,
       loans: item.loans,
       vacations: item.vacations,
     })),
-    { currencyKeys: new Set(["gross", "discounts", "net", "overtime50Value", "overtime100Value", "absenceValue", "loans", "vacations"]) },
+    { currencyKeys: new Set(["gross", "discounts", "net", "overtime50Value", "overtime100Value", "overtimeReflectionValue", "absenceValue", "loans", "vacations"]) },
   );
 
-  addSheet(workbook, "Funcionarios", baseColumns(), rows.map(baseEmployeeRow), {
-    currencyKeys: new Set(["gross", "discounts", "net", "salary", "overtimeValue", "absenceValue", "variablesValue", "loansValue", "vacationCost"]),
+  addSheet(workbook, "Colaboradores", baseColumns(), rows.map(baseEmployeeRow), {
+    currencyKeys: new Set(["gross", "discounts", "net", "salary", "overtimeValue", "overtimeReflectionValue", "absenceValue", "variablesValue", "loansValue", "vacationCost"]),
     dateKeys: new Set(["admissionDate", "resignationDate", "vacationStart", "vacationEnd"]),
   });
 
@@ -1206,6 +1277,7 @@ async function exportWorkbook(rows) {
       { header: "HE 50 valor", key: "value50", width: 16 },
       { header: "HE 100 h", key: "hours100", width: 12 },
       { header: "HE 100 valor", key: "value100", width: 16 },
+      { header: "Reflexos HE", key: "reflectionValue", width: 16 },
       { header: "Total h", key: "totalHours", width: 12 },
       { header: "Total valor", key: "totalValue", width: 16 },
     ],
@@ -1219,10 +1291,11 @@ async function exportWorkbook(rows) {
       value50: item.value50,
       hours100: item.hours100,
       value100: item.value100,
+      reflectionValue: item.reflectionValue || 0,
       totalHours: item.totalHours,
       totalValue: item.totalValue,
     })),
-    { currencyKeys: new Set(["value50", "value100", "totalValue"]) },
+    { currencyKeys: new Set(["value50", "value100", "reflectionValue", "totalValue"]) },
   );
 
   addSheet(
@@ -1416,7 +1489,7 @@ function personColumns() {
     { header: "Periodo", key: "period", width: 12 },
     { header: "Matriz/Filial", key: "branch", width: 28 },
     { header: "Contrato", key: "contract", width: 12 },
-    { header: "Funcionario", key: "name", width: 32 },
+    { header: "Colaborador", key: "name", width: 32 },
     { header: "Cargo", key: "jobTitle", width: 28 },
   ];
 }
@@ -1432,6 +1505,7 @@ function baseColumns() {
     { header: "Liquido", key: "net", width: 16 },
     { header: "HE h", key: "overtimeHours", width: 12 },
     { header: "HE valor", key: "overtimeValue", width: 16 },
+    { header: "Reflexos HE", key: "overtimeReflectionValue", width: 16 },
     { header: "Faltas/Atrasos h", key: "absenceHours", width: 16 },
     { header: "Faltas/Atrasos valor", key: "absenceValue", width: 18 },
     { header: "Variaveis", key: "variablesValue", width: 16 },
@@ -1459,6 +1533,7 @@ function baseEmployeeRow(item) {
     net: item.totals?.net || 0,
     overtimeHours: item.overtime?.hours || 0,
     overtimeValue: item.overtime?.value || 0,
+    overtimeReflectionValue: overtimeReflectionValue(item),
     absenceHours: item.absence?.hours || 0,
     absenceValue: item.absence?.value || 0,
     variablesValue: item.variables?.value || 0,

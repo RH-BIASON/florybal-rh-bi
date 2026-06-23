@@ -31,7 +31,7 @@ npm.cmd run dev
 - Historico de importacoes manuais: `data/import-history/`.
 - Schema Supabase: `supabase/schema.sql`.
 
-O painel permite filtrar 1, 2, 3 ou todos os meses, combinar matriz e filiais, buscar funcionario/contrato/cargo, importar novos PDFs, visualizar admissoes, rescisoes, horas extras, faltas/atrasos, variaveis, encargos, consignados e ferias.
+O painel permite filtrar 1, 2, 3 ou todos os meses, combinar matriz e filiais, buscar colaborador/contrato/cargo, importar novos PDFs, visualizar admissoes, rescisoes, horas extras, faltas/atrasos, variaveis, encargos, consignados e ferias.
 Tambem existe a aba `Auditoria`, que mostra reconciliacao dos PDFs, historico de importacoes manuais, eventos nao classificados e diagnosticos do parser.
 
 ## Supabase
@@ -61,7 +61,7 @@ Quando o Supabase esta configurado, a rota `/api/upload` grava:
 
 - `payroll_imports`: resumo e snapshot da base validada.
 - `payroll_import_files`: arquivos enviados e hash SHA-256.
-- `payroll_records`: registro funcionario/mes.
+- `payroll_records`: registro colaborador/mes.
 - `payroll_events`: verbas/eventos da folha.
 - `payroll_audit_results`: reconciliacao, diagnosticos e verbas nao classificadas.
 - Storage `payroll-pdfs`: PDFs originais.
@@ -73,8 +73,8 @@ Base reprocessada em `data/payroll.json`:
 - 5 PDFs importados.
 - 5 competencias: 12/2025 a 04/2026.
 - 20 unidades/filiais identificadas nos PDFs.
-- 476 funcionarios unicos no conjunto filtrado completo.
-- 1.871 registros funcionario/mes.
+- 476 colaboradores unicos no conjunto filtrado completo.
+- 1.871 registros colaborador/mes.
 - Reconciliacao com o total geral de cada PDF: bruto, descontos e liquido batendo com diferenca `R$ 0,00`.
 - Eventos nao classificados na base atual: `0`.
 - Diagnosticos de pagina/importacao na base atual: `0`.
@@ -107,7 +107,7 @@ npm.cmd run audit:values
 - KPIs financeiros usam valores compactos no card e valores completos nas listas/auditoria.
 - Listas limitam a visualizacao inicial e orientam exportar CSV para a base completa.
 - Graficos evitam pizza para encargos e usam barras/tendencias mais auditaveis.
-- Area `Horas extras` mostra HE 50% e 100% mes a mes, valores pagos e top 5 por funcionario/filial respeitando os filtros ativos.
+- Area `Horas extras` mostra HE 50%, HE 100%, reflexos de HE mes a mes, valores pagos e top 5 por colaborador/filial respeitando os filtros ativos.
 - Area `Faltas e atrasos` mostra faltas, atrasos e repousos descontados com alerta amarelo/vermelho por competencia.
 - Area `Variaveis` mostra comissoes, premios/bonificacoes e adicionais.
 - Area `Auditoria` mostra se a base atual bateu com os PDFs, quais uploads manuais ocorreram e se algum PDF novo trouxe verba sem regra.
