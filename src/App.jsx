@@ -89,13 +89,8 @@ function isInSelected(values, selected) {
 }
 
 function overtimeKind(event) {
-  const description = event.description.toLowerCase();
-  if ((description.includes("horas extras") && description.includes("50%")) || event.code === "00025" || event.code === "00096") {
-    return "50";
-  }
-  if ((description.includes("100%") && (description.includes("horas extras") || description.includes("horas trab"))) || event.code === "00097" || event.code === "00026") {
-    return "100";
-  }
+  if (event.code === "00025" || event.code === "00096") return "50";
+  if (event.code === "00026" || event.code === "00097") return "100";
   return null;
 }
 
@@ -131,9 +126,9 @@ function absenceKind(event) {
 }
 
 function variableKind(event) {
+  if (event.code === "00028" || event.code === "00029") return "Comissões";
+  if (event.code === "00035" || event.code === "00088" || event.code === "00089") return "Prêmios e bonificações";
   const description = event.description.toLowerCase();
-  if (description.includes("comiss")) return "Comissões";
-  if (description.includes("prêmio") || description.includes("premio") || description.includes("bonificação") || description.includes("bonificacao")) return "Prêmios e bonificações";
   if (
     description.includes("adicional") ||
     description.includes("adic.") ||
@@ -1007,8 +1002,8 @@ function Variables({ analytics }) {
         <DataTable
           columns={["Grupo", "O que entra"]}
           rows={[
-            ["Comissões", "Verbas com descrição contendo comiss, incluindo comissões e repouso sobre comissões."],
-            ["Prêmios e bonificações", "Prêmio, premio, bonificação e bonificacao, incluindo produtividade, domingo e feriado."],
+            ["Comissões", "Somente rubricas 00028 Comissões e 00029 Repouso s/Comissões."],
+            ["Prêmios e bonificações", "Somente rubricas 00035, 00088 e 00089."],
             ["Adicionais", "Adicional, adic., gerência, quebra de caixa, tempo de serviço, periculosidade, insalubridade e noturno."],
           ]}
           limit={10}
