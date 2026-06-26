@@ -154,6 +154,8 @@ def absence_kind(event):
 
 
 def variable_kind(event):
+    if overtime_kind(event):
+        return None
     return event_kind(event, "variables")
 
 

@@ -117,6 +117,10 @@ function overtimeReflectionValue(item) {
   return sum(item.events || [], (event) => (overtimeReflectionKind(event) ? event.value : 0));
 }
 
+function variablesValue(item) {
+  return sum(item.events || [], (event) => (variableKind(event) ? event.value : 0));
+}
+
 function absenceKind(event) {
   const description = event.description.toLowerCase();
   if (event.code === "00201" || description.includes("faltas não justificadas") || description.includes("faltas nao justificadas")) return "Faltas";
@@ -126,6 +130,7 @@ function absenceKind(event) {
 }
 
 function variableKind(event) {
+  if (overtimeKind(event)) return null;
   if (event.code === "00028" || event.code === "00029") return "Comissões";
   if (event.code === "00035" || event.code === "00088" || event.code === "00089") return "Prêmios e bonificações";
   const description = event.description.toLowerCase();
@@ -1533,7 +1538,7 @@ function baseEmployeeRow(item) {
     overtimeReflectionValue: overtimeReflectionValue(item),
     absenceHours: item.absence?.hours || 0,
     absenceValue: item.absence?.value || 0,
-    variablesValue: item.variables?.value || 0,
+    variablesValue: variablesValue(item),
     loansValue: item.loans?.value || 0,
     vacationCost: item.vacation?.cost || 0,
     vacationStart: excelDate(item.vacation?.start),
