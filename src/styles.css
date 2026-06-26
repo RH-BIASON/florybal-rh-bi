@@ -52,14 +52,22 @@ button {
 }
 
 .brand-mark {
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: #111827;
-  color: #fbbf24;
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
   display: grid;
   place-items: center;
-  font-weight: 800;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
 }
 
 .brand strong,

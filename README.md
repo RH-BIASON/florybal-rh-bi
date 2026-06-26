@@ -1,4 +1,4 @@
-# Florybal RH BI
+# BI Florybal Chocolates
 
 Aplicacao web local para importar folhas de pagamento em PDF e analisar dados de RH/DP por competencia e filial.
 

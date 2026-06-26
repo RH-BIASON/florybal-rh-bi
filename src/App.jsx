@@ -253,9 +253,11 @@ function App() {
     <main className="app">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">F</div>
+          <div className="brand-mark">
+            <img src="/brand/florybal-logo.png" alt="Florybal Chocolates" />
+          </div>
           <div>
-            <strong>Florybal RH BI</strong>
+            <strong>BI Florybal Chocolates</strong>
             <span>Folha e DP</span>
           </div>
         </div>
@@ -1185,7 +1187,7 @@ async function exportWorkbook(rows) {
   const { default: ExcelJS } = await import("exceljs");
   const analytics = buildAnalytics(rows);
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Florybal RH BI";
+  workbook.creator = "BI Florybal Chocolates";
   workbook.created = new Date();
   workbook.modified = new Date();
 

@@ -214,9 +214,9 @@ app.use(express.static(path.join(root, "dist")));
 app.use((_req, res) => {
   const indexPath = path.join(root, "dist", "index.html");
   if (fs.existsSync(indexPath)) res.sendFile(indexPath);
-  else res.status(200).send("Florybal RH BI API ativa. Use npm run dev para abrir a interface.");
+  else res.status(200).send("BI Florybal Chocolates API ativa. Use npm run dev para abrir a interface.");
 });
 
 app.listen(port, () => {
-  console.log(`Florybal RH BI API em http://127.0.0.1:${port}`);
+  console.log(`BI Florybal Chocolates API em http://127.0.0.1:${port}`);
 });
