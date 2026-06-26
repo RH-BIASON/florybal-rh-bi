@@ -89,7 +89,7 @@ function isInSelected(values, selected) {
 }
 
 function overtimeKind(event) {
-  if (event.code === "00025" || event.code === "00096") return "50";
+  if (event.code === "00025" || event.code === "00096" || event.code === "00107") return "50";
   if (event.code === "00026" || event.code === "00097") return "100";
   return null;
 }
@@ -133,21 +133,7 @@ function variableKind(event) {
   if (overtimeKind(event)) return null;
   if (event.code === "00028" || event.code === "00029") return "Comissões";
   if (event.code === "00035" || event.code === "00088" || event.code === "00089") return "Prêmios e bonificações";
-  const description = event.description.toLowerCase();
-  if (
-    description.includes("adicional") ||
-    description.includes("adic.") ||
-    description.includes("gerencia") ||
-    description.includes("gerência") ||
-    description.includes("quebra de caixa") ||
-    description.includes("tempo de serviço") ||
-    description.includes("tempo de serv") ||
-    description.includes("periculosidade") ||
-    description.includes("insalubridade") ||
-    description.includes("noturno")
-  ) {
-    return "Adicionais";
-  }
+  if (["00020", "00021", "00022", "00023", "00024", "00037", "00050"].includes(event.code)) return "Adicionais";
   return null;
 }
 
@@ -1011,7 +997,7 @@ function Variables({ analytics }) {
           rows={[
             ["Comissões", "Somente rubricas 00028 Comissões e 00029 Repouso s/Comissões."],
             ["Prêmios e bonificações", "Somente rubricas 00035, 00088 e 00089."],
-            ["Adicionais", "Adicional, adic., gerência, quebra de caixa, tempo de serviço, periculosidade, insalubridade e noturno."],
+            ["Adicionais", "Somente rubricas 00020, 00021, 00022, 00023, 00024, 00037 e 00050."],
           ]}
           limit={10}
         />

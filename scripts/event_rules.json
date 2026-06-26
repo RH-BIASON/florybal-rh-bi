@@ -4,7 +4,8 @@
       "kind": "50",
       "codes": [
         "00025",
-        "00096"
+        "00096",
+        "00107"
       ]
     },
     {
@@ -87,19 +88,14 @@
     },
     {
       "kind": "Adicionais",
-      "descriptionIncludesAny": [
-        "adicional",
-        "adic.",
-        "gerencia",
-        "gerência",
-        "quebra de caixa",
-        "tempo de serviço",
-        "tempo de serv",
-        "periculosidade",
-        "insalubridade",
-        "noturno",
-        "noturna",
-        "noturnas"
+      "codes": [
+        "00020",
+        "00021",
+        "00022",
+        "00023",
+        "00024",
+        "00037",
+        "00050"
       ]
     }
   ],
@@ -218,6 +214,9 @@
         "restituição",
         "restituicao",
         "arredondamento"
+      ],
+      "codes": [
+        "00093"
       ]
     }
   ]
