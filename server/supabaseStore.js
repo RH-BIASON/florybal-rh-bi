@@ -261,7 +261,7 @@ export async function importHistoryFromSupabase() {
     "/rest/v1/payroll_imports?select=id,status,imported_at,source_files,detail,periods,branch_count,employee_records,reconciliation_matched,diagnostic_count,unclassified_event_count&order=imported_at.desc&limit=80",
     { method: "GET" },
   );
-  return rows.map((row) => ({
+  return rows.filter((row) => (row.source_files || []).length).map((row) => ({
     id: row.id,
     status: row.status,
     importedAt: row.imported_at,
