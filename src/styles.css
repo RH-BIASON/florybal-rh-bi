@@ -732,6 +732,29 @@ h2 {
   background: #FDF9EB;
 }
 
+.backup-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #D7C7A3;
+  border-radius: 8px;
+  background: #FDF9EB;
+}
+
+.backup-box strong,
+.backup-box span {
+  display: block;
+}
+
+.backup-box span {
+  margin-top: 4px;
+  color: #85523A;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .period-admin strong,
 .period-admin span {
   display: block;
@@ -1059,6 +1082,7 @@ h2 {
   }
 
   .period-admin,
+  .backup-box,
   .confirm-modal {
     grid-template-columns: 1fr;
   }

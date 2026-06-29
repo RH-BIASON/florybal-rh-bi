@@ -1271,6 +1271,18 @@ function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeri
           <div><span>Filtro atual</span><strong>{analytics.rows.length.toLocaleString("pt-BR")}</strong><small>registros em análise</small></div>
         </div>
       </Panel>
+      <Panel title="Backup e retenção" icon={Download} wide>
+        <div className="backup-box">
+          <div>
+            <strong>Histórico preservado no Supabase</strong>
+            <span>Os PDFs enviados ficam armazenados no bucket privado, e cada importação fica registrada no histórico. O botão abaixo exporta uma cópia JSON da base ativa, reconciliação e histórico visível.</span>
+          </div>
+          <button className="secondary-action" onClick={() => exportBackup(dataset, importHistory)}>
+            <Download size={18} />
+            Backup JSON
+          </button>
+        </div>
+      </Panel>
       <Panel title="Conferência com os PDFs" icon={CheckCircle2} wide>
         <DataTable
           columns={["Arquivo", "Página", "Status", "Bruto PDF", "Bruto App", "Líquido PDF", "Líquido App", "Diferença"]}
@@ -1485,6 +1497,26 @@ function ConfirmDialog({ title, message, confirmLabel, cancelLabel, onConfirm, o
       </section>
     </div>
   );
+}
+
+function exportBackup(dataset, importHistory) {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    product: "BI Florybal Chocolates",
+    periods: dataset.periods,
+    sources: dataset.sources,
+    quality: dataset.quality,
+    branches: dataset.branches,
+    employees: dataset.employees,
+    importHistory,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `backup-bi-florybal-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 async function exportWorkbook(rows) {
