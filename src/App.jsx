@@ -14,6 +14,7 @@ import {
   Search,
   ShieldAlert,
   TrendingUp,
+  Trash2,
   Users,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -155,6 +156,8 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
   const [query, setQuery] = useState("");
   const [view, setView] = useState("overview");
+  const [replacePrompt, setReplacePrompt] = useState(null);
+  const [removingPeriod, setRemovingPeriod] = useState("");
 
   async function loadData() {
     setLoading(true);
@@ -179,7 +182,18 @@ function App() {
     loadData();
   }, []);
 
-  async function importFiles(files) {
+  async function refreshImportHistory() {
+    const historyResponse = await fetch("/api/import-history");
+    if (historyResponse.ok) setImportHistory(await historyResponse.json());
+  }
+
+  function applyDataset(payload) {
+    setDataset(payload);
+    setSelectedPeriods(new Set(payload.periods));
+    setSelectedBranches(new Set(payload.branches.map((branch) => branch.code)));
+  }
+
+  async function importFiles(files, options = {}) {
     if (!files.length) return;
     const pdfs = files.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
     if (!pdfs.length) {
@@ -188,21 +202,45 @@ function App() {
     }
     const form = new FormData();
     pdfs.forEach((file) => form.append("pdfs", file));
+    if (options.replaceExisting) form.append("replaceExisting", "true");
     setUploading(true);
     setError("");
     try {
       const response = await fetch("/api/upload", { method: "POST", body: form });
       const payload = await response.json();
+      if (response.status === 409 && payload.code === "PERIOD_EXISTS") {
+        setReplacePrompt({ periods: payload.periods || [], files: pdfs });
+        return;
+      }
       if (!response.ok) throw new Error(payload.error || "Falha ao importar PDFs");
-      setDataset(payload);
-      setSelectedPeriods(new Set(payload.periods));
-      setSelectedBranches(new Set(payload.branches.map((branch) => branch.code)));
-      const historyResponse = await fetch("/api/import-history");
-      if (historyResponse.ok) setImportHistory(await historyResponse.json());
+      applyDataset(payload);
+      await refreshImportHistory();
     } catch (err) {
       setError(err.message);
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function confirmReplacePeriods() {
+    const files = replacePrompt?.files || [];
+    setReplacePrompt(null);
+    await importFiles(files, { replaceExisting: true });
+  }
+
+  async function removePeriod(periodKey) {
+    setRemovingPeriod(periodKey);
+    setError("");
+    try {
+      const response = await fetch(`/api/periods/${encodeURIComponent(periodKey)}`, { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Falha ao remover período");
+      applyDataset(payload);
+      await refreshImportHistory();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setRemovingPeriod("");
     }
   }
 
@@ -294,6 +332,16 @@ function App() {
         </header>
 
         {error && <div className="notice danger">{error}</div>}
+        {replacePrompt && (
+          <ConfirmDialog
+            title="Substituir competência existente?"
+            message={`A competência ${replacePrompt.periods.map(periodLabel).join(", ")} já existe na base. Deseja substituir somente esse mês e manter os demais períodos salvos?`}
+            confirmLabel="Substituir"
+            cancelLabel="Cancelar"
+            onConfirm={confirmReplacePeriods}
+            onCancel={() => setReplacePrompt(null)}
+          />
+        )}
 
         <section className="control-surface">
           <div className="filter-group periods">
@@ -383,7 +431,7 @@ function App() {
         {view === "variables" && <Variables analytics={analytics} />}
         {view === "charges" && <Charges analytics={analytics} />}
         {view === "benefits" && <Benefits analytics={analytics} />}
-        {view === "audit" && <Audit dataset={dataset} analytics={analytics} importHistory={importHistory} />}
+        {view === "audit" && <Audit dataset={dataset} analytics={analytics} importHistory={importHistory} onRemovePeriod={removePeriod} removingPeriod={removingPeriod} />}
       </section>
     </main>
   );
@@ -1091,7 +1139,7 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
-function Audit({ dataset, analytics, importHistory }) {
+function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeriod }) {
   const quality = dataset.quality || {};
   const reconciliationRows = (quality.reconciliation || []).map((item) => [
     item.sourceFile,
@@ -1147,6 +1195,20 @@ function Audit({ dataset, analytics, importHistory }) {
         />
       </Panel>
       <Panel title="Histórico de importações manuais" icon={FileUp} wide>
+        <div className="period-admin">
+          <div>
+            <strong>Meses ativos na base</strong>
+            <span>Remover tira o mês do BI atual, sem apagar o PDF nem o registro da importação no Supabase.</span>
+          </div>
+          <div className="period-admin-actions">
+            {(dataset.periods || []).map((period) => (
+              <button key={period} onClick={() => onRemovePeriod(period)} disabled={Boolean(removingPeriod)} title={`Remover ${periodLabel(period)} da base ativa`}>
+                <Trash2 size={14} />
+                {removingPeriod === period ? "Removendo..." : periodLabel(period)}
+              </button>
+            ))}
+          </div>
+        </div>
         <DataTable
           columns={["Data", "Status", "Arquivos", "Períodos", "Filiais", "Registros", "Batido", "Detalhe"]}
           rows={historyRows}
@@ -1171,6 +1233,26 @@ function Audit({ dataset, analytics, importHistory }) {
         />
       </Panel>
     </section>
+  );
+}
+
+function ConfirmDialog({ title, message, confirmLabel, cancelLabel, onConfirm, onCancel }) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div className="confirm-icon">
+          <AlertTriangle size={22} />
+        </div>
+        <div className="confirm-copy">
+          <h2 id="confirm-title">{title}</h2>
+          <p>{message}</p>
+        </div>
+        <div className="confirm-actions">
+          <button className="secondary-action ghost" onClick={onCancel}>{cancelLabel}</button>
+          <button className="secondary-action" onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </section>
+    </div>
   );
 }
 

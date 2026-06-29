@@ -126,3 +126,23 @@ export function mergePayrollDatasets(baseDataset, importedDataset) {
     quality: rebuildQuality(baseDataset, importedDataset, employees, newPeriods),
   };
 }
+
+export function removePayrollPeriods(baseDataset, periodKeys) {
+  const removedPeriods = new Set(periodKeys || []);
+  if (!baseDataset?.employees?.length || !removedPeriods.size) return baseDataset;
+
+  const employees = baseDataset.employees.filter((employee) => !removedPeriods.has(employee.period?.key));
+  const periods = sortPeriods(employees.map((employee) => employee.period?.key).filter(Boolean));
+  const branches = sortBranches(employees.map((employee) => employee.branch).filter(Boolean));
+  const sources = uniqBy(employees, (employee) => employee.sourceFile).map((employee) => employee.sourceFile);
+
+  return {
+    ...baseDataset,
+    generatedAt: new Date().toISOString(),
+    sources,
+    periods,
+    branches,
+    employees,
+    quality: rebuildQuality(baseDataset, { quality: {} }, employees, removedPeriods),
+  };
+}

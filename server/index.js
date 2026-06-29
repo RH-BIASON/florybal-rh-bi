@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { mergePayrollDatasets } from "./datasetMerge.js";
+import { mergePayrollDatasets, removePayrollPeriods } from "./datasetMerge.js";
 import { loadEnv } from "./env.js";
 import { importHistoryFromSupabase, isSupabaseConfigured, latestPayrollFromSupabase, saveImportToSupabase } from "./supabaseStore.js";
 
@@ -130,8 +130,25 @@ app.get("/api/import-history", async (_req, res) => {
     .readdirSync(historyDir)
     .filter((file) => file.endsWith(".metadata.json"))
     .map((file) => JSON.parse(fs.readFileSync(path.join(historyDir, file), "utf8")))
+    .filter((entry) => entry.files?.length)
     .sort((a, b) => b.importedAt.localeCompare(a.importedAt));
   res.json(entries);
+});
+
+app.delete("/api/periods/:periodKey", async (req, res) => {
+  const periodKey = req.params.periodKey;
+  const current = await currentPayrollDataset();
+  if (!current?.periods?.includes(periodKey)) {
+    res.status(404).json({ error: "Periodo nao encontrado na base ativa." });
+    return;
+  }
+
+  const id = `${importId()}-periodo-removido`;
+  const outputPath = path.join(root, "data", "payroll.json");
+  const payload = removePayrollPeriods(current, [periodKey]);
+  await persistImport(id, "imported", [], payload, `Periodo ${periodKey} removido da base ativa.`);
+  fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2), "utf8");
+  res.json(payload);
 });
 
 app.post("/api/upload", upload.array("pdfs"), (req, res) => {
@@ -203,6 +220,19 @@ app.post("/api/upload", upload.array("pdfs"), (req, res) => {
         return;
       }
       const basePayload = await currentPayrollDataset();
+      const duplicatePeriods = (parsedPayload.periods || []).filter((period) => basePayload?.periods?.includes(period));
+      const replaceExisting = req.body?.replaceExisting === "true" || req.query?.replaceExisting === "true";
+      if (duplicatePeriods.length && !replaceExisting) {
+        fs.rm(pendingPath, { force: true }, () => {});
+        for (const file of req.files) fs.rm(file.path, { force: true }, () => {});
+        res.status(409).json({
+          error: "Competencia ja existe na base ativa.",
+          code: "PERIOD_EXISTS",
+          periods: duplicatePeriods,
+          message: `A competencia ${duplicatePeriods.join(", ")} ja existe. Confirme para substituir somente esse(s) mes(es).`,
+        });
+        return;
+      }
       const payload = mergePayrollDatasets(basePayload, parsedPayload);
       fs.writeFileSync(pendingPath, JSON.stringify(payload, null, 2), "utf8");
       ensureDir(historyDir);

@@ -204,6 +204,12 @@ h2 {
   color: #1C0B01;
 }
 
+.secondary-action.ghost {
+  background: #fffdf7;
+  color: #6B3C2A;
+  border-color: #D7C7A3;
+}
+
 .icon-button {
   width: 40px;
   padding: 0;
@@ -689,6 +695,110 @@ h2 {
   font-size: 13px;
 }
 
+.period-admin {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr);
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #D7C7A3;
+  border-radius: 8px;
+  background: #FDF9EB;
+}
+
+.period-admin strong,
+.period-admin span {
+  display: block;
+}
+
+.period-admin span {
+  margin-top: 3px;
+  color: #85523A;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.period-admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.period-admin-actions button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #D7C7A3;
+  border-radius: 8px;
+  background: #fffdf7;
+  color: #6B3C2A;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.period-admin-actions button:hover:not(:disabled) {
+  border-color: #991b1b;
+  color: #991b1b;
+}
+
+.period-admin-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(28, 11, 1, 0.42);
+}
+
+.confirm-modal {
+  width: min(520px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #D7C7A3;
+  border-radius: 8px;
+  background: #fffdf7;
+  box-shadow: 0 24px 70px rgba(28, 11, 1, 0.28);
+}
+
+.confirm-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #EEDFB9;
+  color: #85523A;
+}
+
+.confirm-copy h2 {
+  font-size: 18px;
+}
+
+.confirm-copy p {
+  margin: 7px 0 0;
+  color: #6B3C2A;
+  line-height: 1.45;
+}
+
+.confirm-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .state {
   min-height: 100vh;
   display: grid;
@@ -770,5 +880,20 @@ h2 {
   .rank-metrics {
     grid-column: 1 / -1;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .period-admin,
+  .confirm-modal {
+    grid-template-columns: 1fr;
+  }
+
+  .period-admin-actions,
+  .confirm-actions {
+    justify-content: stretch;
+  }
+
+  .period-admin-actions button,
+  .confirm-actions button {
+    width: 100%;
   }
 }
