@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createUser, deleteUser, hasUsers, isAuthConfigured, listUsers, loginUser, publicUser, userFromToken } from "./authStore.js";
 import { mergePayrollDatasets, removePayrollPeriods } from "./datasetMerge.js";
 import { loadEnv } from "./env.js";
 import { importHistoryFromSupabase, isSupabaseConfigured, latestPayrollFromSupabase, saveImportToSupabase } from "./supabaseStore.js";
@@ -46,7 +47,110 @@ app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
     storage: isSupabaseConfigured() ? "supabase" : "local",
+    auth: isAuthConfigured() ? "supabase" : "disabled",
   });
+});
+
+function tokenFromRequest(req) {
+  const value = req.headers.authorization || "";
+  return value.startsWith("Bearer ") ? value.slice(7) : "";
+}
+
+async function requireAuth(req, res, next) {
+  if (!isAuthConfigured()) {
+    req.user = { id: "local", email: "local", user_metadata: { name: "Local", role: "admin" } };
+    next();
+    return;
+  }
+  const token = tokenFromRequest(req);
+  if (!token) {
+    res.status(401).json({ error: "Login obrigatorio." });
+    return;
+  }
+  try {
+    req.user = await userFromToken(token);
+    next();
+  } catch (_error) {
+    res.status(401).json({ error: "Sessao expirada. Entre novamente." });
+  }
+}
+
+function requireAdmin(req, res, next) {
+  const role = req.user?.user_metadata?.role || "user";
+  if (role !== "admin") {
+    res.status(403).json({ error: "Acesso permitido somente para administradores." });
+    return;
+  }
+  next();
+}
+
+app.get("/api/auth/status", async (_req, res) => {
+  if (!isAuthConfigured()) {
+    res.json({ configured: false, hasUsers: true });
+    return;
+  }
+  res.json({ configured: true, hasUsers: await hasUsers() });
+});
+
+app.post("/api/auth/setup", async (req, res) => {
+  if (!isAuthConfigured()) {
+    res.status(503).json({ error: "Autenticacao nao configurada." });
+    return;
+  }
+  if (await hasUsers()) {
+    res.status(409).json({ error: "O primeiro acesso ja foi criado." });
+    return;
+  }
+  const { name, email, password } = req.body || {};
+  if (!name || !email || !password || password.length < 8) {
+    res.status(400).json({ error: "Informe nome, e-mail e senha com pelo menos 8 caracteres." });
+    return;
+  }
+  await createUser({ name, email, password, role: "admin" });
+  const session = await loginUser({ email, password });
+  res.json({ token: session.access_token, user: publicUser(session.user) });
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    res.status(400).json({ error: "Informe e-mail e senha." });
+    return;
+  }
+  try {
+    const session = await loginUser({ email, password });
+    res.json({ token: session.access_token, user: publicUser(session.user) });
+  } catch (_error) {
+    res.status(401).json({ error: "E-mail ou senha invalido." });
+  }
+});
+
+app.get("/api/auth/me", requireAuth, (req, res) => {
+  res.json({ user: publicUser(req.user) });
+});
+
+app.get("/api/auth/users", requireAuth, requireAdmin, async (_req, res) => {
+  const users = await listUsers();
+  res.json(users.map(publicUser));
+});
+
+app.post("/api/auth/users", requireAuth, requireAdmin, async (req, res) => {
+  const { name, email, password, role } = req.body || {};
+  if (!name || !email || !password || password.length < 8) {
+    res.status(400).json({ error: "Informe nome, e-mail e senha com pelo menos 8 caracteres." });
+    return;
+  }
+  const user = await createUser({ name, email, password, role });
+  res.json(publicUser(user));
+});
+
+app.delete("/api/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  if (req.params.id === req.user?.id) {
+    res.status(400).json({ error: "Voce nao pode excluir o proprio acesso logado." });
+    return;
+  }
+  await deleteUser(req.params.id);
+  res.json({ ok: true });
 });
 
 function writeImportHistory(id, status, files, payload = null, detail = "") {
@@ -90,7 +194,7 @@ async function currentPayrollDataset() {
   return null;
 }
 
-app.get("/api/payroll", async (_req, res) => {
+app.get("/api/payroll", requireAuth, async (_req, res) => {
   if (isSupabaseConfigured()) {
     try {
       const payload = await latestPayrollFromSupabase();
@@ -110,7 +214,7 @@ app.get("/api/payroll", async (_req, res) => {
   res.sendFile(dataPath);
 });
 
-app.get("/api/import-history", async (_req, res) => {
+app.get("/api/import-history", requireAuth, async (_req, res) => {
   if (isSupabaseConfigured()) {
     try {
       const entries = await importHistoryFromSupabase();
@@ -135,7 +239,7 @@ app.get("/api/import-history", async (_req, res) => {
   res.json(entries);
 });
 
-app.delete("/api/periods/:periodKey", async (req, res) => {
+app.delete("/api/periods/:periodKey", requireAuth, requireAdmin, async (req, res) => {
   const periodKey = req.params.periodKey;
   const current = await currentPayrollDataset();
   if (!current?.periods?.includes(periodKey)) {
@@ -151,7 +255,7 @@ app.delete("/api/periods/:periodKey", async (req, res) => {
   res.json(payload);
 });
 
-app.post("/api/upload", upload.array("pdfs"), (req, res) => {
+app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, res) => {
   if (!req.files?.length) {
     res.status(400).json({ error: "Envie ao menos um PDF." });
     return;

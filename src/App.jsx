@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   TrendingUp,
   Trash2,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -42,6 +43,7 @@ const chargeLabels = {
 };
 
 const chartColors = ["#f59e0b", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64748b", "#0f766e"];
+const tokenKey = "florybal_bi_token";
 
 function currency(value) {
   return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -147,6 +149,10 @@ function absenceLevel(hours) {
 function App() {
   const [dataset, setDataset] = useState(null);
   const [importHistory, setImportHistory] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem(tokenKey) || "");
+  const [authMode, setAuthMode] = useState("login");
+  const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -159,11 +165,28 @@ function App() {
   const [replacePrompt, setReplacePrompt] = useState(null);
   const [removingPeriod, setRemovingPeriod] = useState("");
 
-  async function loadData() {
+  const isAdmin = currentUser?.role === "admin";
+
+  function authHeaders(token = authToken) {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  async function apiRequest(path, options = {}, token = authToken) {
+    const headers = {
+      ...(options.headers || {}),
+      ...authHeaders(token),
+    };
+    if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
+    const response = await fetch(path, { ...options, headers });
+    if (response.status === 401) logout();
+    return response;
+  }
+
+  async function loadData(token = authToken) {
     setLoading(true);
     setError("");
     try {
-      const [response, historyResponse] = await Promise.all([fetch("/api/payroll"), fetch("/api/import-history")]);
+      const [response, historyResponse] = await Promise.all([apiRequest("/api/payroll", {}, token), apiRequest("/api/import-history", {}, token)]);
       if (!response.ok) throw new Error("Não foi possível carregar data/payroll.json");
       const payload = await response.json();
       const historyPayload = historyResponse.ok ? await historyResponse.json() : [];
@@ -179,11 +202,61 @@ function App() {
   }
 
   useEffect(() => {
-    loadData();
+    initializeAuth();
   }, []);
 
+  async function initializeAuth() {
+    setAuthLoading(true);
+    try {
+      const statusResponse = await fetch("/api/auth/status");
+      const status = statusResponse.ok ? await statusResponse.json() : { hasUsers: true };
+      setAuthMode(status.hasUsers ? "login" : "setup");
+      if (!authToken) return;
+      const response = await fetch("/api/auth/me", { headers: authHeaders(authToken) });
+      if (!response.ok) throw new Error("Sessão expirada.");
+      const payload = await response.json();
+      setCurrentUser(payload.user);
+      await loadData(authToken);
+    } catch (_error) {
+      localStorage.removeItem(tokenKey);
+      setAuthToken("");
+      setCurrentUser(null);
+    } finally {
+      setAuthLoading(false);
+      setLoading(false);
+    }
+  }
+
+  async function handleAuthSubmit(values) {
+    setError("");
+    const endpoint = authMode === "setup" ? "/api/auth/setup" : "/api/auth/login";
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(values),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      setError(payload.error || "Falha ao entrar.");
+      return;
+    }
+    localStorage.setItem(tokenKey, payload.token);
+    setAuthToken(payload.token);
+    setCurrentUser(payload.user);
+    await loadData(payload.token);
+  }
+
+  function logout() {
+    localStorage.removeItem(tokenKey);
+    setAuthToken("");
+    setCurrentUser(null);
+    setDataset(null);
+    setImportHistory([]);
+    setView("overview");
+  }
+
   async function refreshImportHistory() {
-    const historyResponse = await fetch("/api/import-history");
+    const historyResponse = await apiRequest("/api/import-history");
     if (historyResponse.ok) setImportHistory(await historyResponse.json());
   }
 
@@ -206,7 +279,7 @@ function App() {
     setUploading(true);
     setError("");
     try {
-      const response = await fetch("/api/upload", { method: "POST", body: form });
+      const response = await apiRequest("/api/upload", { method: "POST", body: form });
       const payload = await response.json();
       if (response.status === 409 && payload.code === "PERIOD_EXISTS") {
         setReplacePrompt({ periods: payload.periods || [], files: pdfs });
@@ -232,7 +305,7 @@ function App() {
     setRemovingPeriod(periodKey);
     setError("");
     try {
-      const response = await fetch(`/api/periods/${encodeURIComponent(periodKey)}`, { method: "DELETE" });
+      const response = await apiRequest(`/api/periods/${encodeURIComponent(periodKey)}`, { method: "DELETE" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Falha ao remover período");
       applyDataset(payload);
@@ -272,6 +345,8 @@ function App() {
 
   const analytics = useMemo(() => buildAnalytics(filtered), [filtered]);
 
+  if (authLoading) return <ShellState icon={RefreshCw} label="Carregando acesso..." />;
+  if (!currentUser) return <AuthScreen mode={authMode} error={error} onSubmit={handleAuthSubmit} />;
   if (loading) return <ShellState icon={RefreshCw} label="Carregando dados da folha..." />;
   if (error && !dataset) return <ShellState icon={ShieldAlert} label={error} />;
 
@@ -300,6 +375,7 @@ function App() {
             ["charges", Landmark, "Encargos"],
             ["benefits", Banknote, "Férias e consignados"],
             ["audit", ClipboardCheck, "Auditoria"],
+            ...(isAdmin ? [["access", UserPlus, "Acessos"]] : []),
           ].map(([key, Icon, label]) => (
             <button key={key} className={view === key ? "active" : ""} onClick={() => setView(key)}>
               <Icon size={18} />
@@ -311,6 +387,7 @@ function App() {
           <span>Fonte atual</span>
           <strong>{dataset.sources.length} PDFs</strong>
           <small>{dataset.quality.employeeRecords.toLocaleString("pt-BR")} registros extraídos</small>
+          <button onClick={logout}>Sair</button>
         </div>
       </aside>
 
@@ -405,19 +482,26 @@ function App() {
               <Search size={17} />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar colaborador, contrato ou cargo" />
             </label>
-            <label
-              className={dragActive ? "dropzone active" : "dropzone"}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragActive(true);
-              }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={handleDrop}
-            >
-              <FileUp size={18} />
-              <span>{uploading ? "Importando e conferindo..." : "Arraste PDFs aqui"}</span>
-              <input type="file" accept="application/pdf" multiple onChange={handleUpload} disabled={uploading} />
-            </label>
+            {isAdmin ? (
+              <label
+                className={dragActive ? "dropzone active" : "dropzone"}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={handleDrop}
+              >
+                <FileUp size={18} />
+                <span>{uploading ? "Importando e conferindo..." : "Arraste PDFs aqui"}</span>
+                <input type="file" accept="application/pdf" multiple onChange={handleUpload} disabled={uploading} />
+              </label>
+            ) : (
+              <div className="readonly-note">
+                <FileUp size={18} />
+                <span>Importação disponível para administradores.</span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -431,7 +515,8 @@ function App() {
         {view === "variables" && <Variables analytics={analytics} />}
         {view === "charges" && <Charges analytics={analytics} />}
         {view === "benefits" && <Benefits analytics={analytics} />}
-        {view === "audit" && <Audit dataset={dataset} analytics={analytics} importHistory={importHistory} onRemovePeriod={removePeriod} removingPeriod={removingPeriod} />}
+        {view === "audit" && <Audit dataset={dataset} analytics={analytics} importHistory={importHistory} onRemovePeriod={removePeriod} removingPeriod={removingPeriod} isAdmin={isAdmin} />}
+        {view === "access" && isAdmin && <AccessPanel apiRequest={apiRequest} currentUser={currentUser} />}
       </section>
     </main>
   );
@@ -1139,7 +1224,7 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
-function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeriod }) {
+function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeriod, isAdmin }) {
   const quality = dataset.quality || {};
   const reconciliationRows = (quality.reconciliation || []).map((item) => [
     item.sourceFile,
@@ -1195,20 +1280,22 @@ function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeri
         />
       </Panel>
       <Panel title="Histórico de importações manuais" icon={FileUp} wide>
-        <div className="period-admin">
-          <div>
-            <strong>Meses ativos na base</strong>
-            <span>Remover tira o mês do BI atual, sem apagar o PDF nem o registro da importação no Supabase.</span>
+        {isAdmin && (
+          <div className="period-admin">
+            <div>
+              <strong>Meses ativos na base</strong>
+              <span>Remover tira o mês do BI atual, sem apagar o PDF nem o registro da importação no Supabase.</span>
+            </div>
+            <div className="period-admin-actions">
+              {(dataset.periods || []).map((period) => (
+                <button key={period} onClick={() => onRemovePeriod(period)} disabled={Boolean(removingPeriod)} title={`Remover ${periodLabel(period)} da base ativa`}>
+                  <Trash2 size={14} />
+                  {removingPeriod === period ? "Removendo..." : periodLabel(period)}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="period-admin-actions">
-            {(dataset.periods || []).map((period) => (
-              <button key={period} onClick={() => onRemovePeriod(period)} disabled={Boolean(removingPeriod)} title={`Remover ${periodLabel(period)} da base ativa`}>
-                <Trash2 size={14} />
-                {removingPeriod === period ? "Removendo..." : periodLabel(period)}
-              </button>
-            ))}
-          </div>
-        </div>
+        )}
         <DataTable
           columns={["Data", "Status", "Arquivos", "Períodos", "Filiais", "Registros", "Batido", "Detalhe"]}
           rows={historyRows}
@@ -1231,6 +1318,150 @@ function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeri
           empty="Sem diagnósticos de falha na importação atual."
           limit={80}
         />
+      </Panel>
+    </section>
+  );
+}
+
+function AuthScreen({ mode, error, onSubmit }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const firstAccess = mode === "setup";
+
+  async function submit(event) {
+    event.preventDefault();
+    setSubmitting(true);
+    try {
+      await onSubmit({ name, email, password });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-card">
+        <form className="auth-form" onSubmit={submit}>
+          <img src="/brand/florybal-logo.png" alt="Florybal Chocolates" />
+          <span>Business intelligence RH/DP</span>
+          <h1>{firstAccess ? "Criar primeiro acesso" : "Entrar no BI"}</h1>
+          <p>{firstAccess ? "Este usuário será o administrador inicial do painel." : "Use seu e-mail e senha para acessar os dados da folha."}</p>
+          {error && <div className="notice danger">{error}</div>}
+          {firstAccess && (
+            <label>
+              Nome
+              <input value={name} onChange={(event) => setName(event.target.value)} required autoComplete="name" />
+            </label>
+          )}
+          <label>
+            E-mail
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" />
+          </label>
+          <label>
+            Senha
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete={firstAccess ? "new-password" : "current-password"} />
+          </label>
+          <button className="secondary-action" disabled={submitting}>{submitting ? "Aguarde..." : firstAccess ? "Criar acesso" : "Entrar"}</button>
+        </form>
+        <aside className="auth-brand">
+          <img src="/brand/florybal-logo.png" alt="" />
+          <div>
+            <strong>BI Florybal Chocolates</strong>
+            <span>Folha de pagamento, indicadores e auditoria em um só ambiente.</span>
+          </div>
+        </aside>
+      </section>
+    </main>
+  );
+}
+
+function AccessPanel({ apiRequest, currentUser }) {
+  const [users, setUsers] = useState([]);
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "user" });
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function loadUsers() {
+    const response = await apiRequest("/api/auth/users");
+    const payload = await response.json();
+    if (response.ok) setUsers(payload);
+    else setMessage(payload.error || "Falha ao carregar acessos.");
+  }
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  async function createAccess(event) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await apiRequest("/api/auth/users", {
+        method: "POST",
+        body: JSON.stringify(form),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Falha ao criar acesso.");
+      setForm({ name: "", email: "", password: "", role: "user" });
+      setMessage("Acesso criado com sucesso.");
+      await loadUsers();
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeAccess(user) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await apiRequest(`/api/auth/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Falha ao excluir acesso.");
+      setMessage("Acesso excluído.");
+      await loadUsers();
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="grid two">
+      <Panel title="Criar acesso" icon={UserPlus}>
+        <form className="access-form" onSubmit={createAccess}>
+          <label>Nome<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></label>
+          <label>E-mail<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label>
+          <label>Senha<input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required minLength={8} /></label>
+          <label>Perfil<select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}><option value="user">Usuário</option><option value="admin">Administrador</option></select></label>
+          <button className="secondary-action" disabled={busy}>{busy ? "Salvando..." : "Criar acesso"}</button>
+          {message && <span className="form-message">{message}</span>}
+        </form>
+      </Panel>
+      <Panel title="Acessos cadastrados" icon={Users}>
+        <div className="record-list">
+          {users.map((user) => (
+            <article className="record-row access-row" key={user.id}>
+              <div className="record-primary">
+                <span>{user.role === "admin" ? "Administrador" : "Usuário"}</span>
+                <strong>{user.name}</strong>
+              </div>
+              <div className="record-fields">
+                <div className="record-field"><span>E-mail</span><strong>{user.email}</strong></div>
+                <div className="record-field"><span>Último acesso</span><strong>{user.lastSignInAt ? formatDateTime(user.lastSignInAt) : "-"}</strong></div>
+                <button className="danger-action" onClick={() => removeAccess(user)} disabled={busy || user.id === currentUser.id}>
+                  <Trash2 size={15} />
+                  Excluir
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
       </Panel>
     </section>
   );
