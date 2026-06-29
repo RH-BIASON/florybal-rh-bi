@@ -908,7 +908,8 @@ h2 {
 .auth-brand {
   position: relative;
   display: grid;
-  place-items: end start;
+  grid-template-rows: 1fr auto;
+  place-items: center;
   padding: 34px;
   background:
     linear-gradient(180deg, rgba(28, 11, 1, 0.12), rgba(28, 11, 1, 0.68)),
@@ -916,16 +917,15 @@ h2 {
 }
 
 .auth-brand img {
-  position: absolute;
-  top: 26px;
-  right: 28px;
-  width: 150px;
-  max-width: 40%;
+  width: min(280px, 72%);
+  max-height: 260px;
   object-fit: contain;
   filter: drop-shadow(0 12px 20px rgba(28, 11, 1, 0.18));
 }
 
 .auth-brand div {
+  justify-self: start;
+  align-self: end;
   max-width: 330px;
   color: #FDF9EB;
 }
