@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mergePayrollDatasets } from "./datasetMerge.js";
 import { loadEnv } from "./env.js";
 import { importHistoryFromSupabase, isSupabaseConfigured, latestPayrollFromSupabase, saveImportToSupabase } from "./supabaseStore.js";
 
@@ -77,6 +78,16 @@ async function persistImport(id, status, files, payload = null, detail = "") {
     await saveImportToSupabase(id, status, files, payload, detail);
   }
   writeImportHistory(id, status, files, payload, detail);
+}
+
+async function currentPayrollDataset() {
+  if (isSupabaseConfigured()) {
+    const payload = await latestPayrollFromSupabase();
+    if (payload) return payload;
+  }
+  const dataPath = path.join(root, "data", "payroll.json");
+  if (fs.existsSync(dataPath)) return JSON.parse(fs.readFileSync(dataPath, "utf8"));
+  return null;
 }
 
 app.get("/api/payroll", async (_req, res) => {
@@ -178,19 +189,22 @@ app.post("/api/upload", upload.array("pdfs"), (req, res) => {
       return;
     }
     try {
-      const payload = JSON.parse(fs.readFileSync(pendingPath, "utf8"));
-      if (!payload.quality?.reconciliationMatched) {
+      const parsedPayload = JSON.parse(fs.readFileSync(pendingPath, "utf8"));
+      if (!parsedPayload.quality?.reconciliationMatched) {
         fs.rm(pendingPath, { force: true }, () => {});
-        await persistImport(id, "blocked", req.files, payload, "Totais extraidos nao bateram com o total geral do PDF.");
+        await persistImport(id, "blocked", req.files, parsedPayload, "Totais extraidos nao bateram com o total geral do PDF.");
         for (const file of req.files) fs.rm(file.path, { force: true }, () => {});
         res.status(422).json({
           error: "Importação bloqueada: os totais extraídos não bateram com o total geral do PDF.",
-          reconciliation: payload.quality?.reconciliation || [],
-          diagnostics: payload.quality?.diagnostics || [],
-          unclassifiedEvents: payload.quality?.unclassifiedEvents || [],
+          reconciliation: parsedPayload.quality?.reconciliation || [],
+          diagnostics: parsedPayload.quality?.diagnostics || [],
+          unclassifiedEvents: parsedPayload.quality?.unclassifiedEvents || [],
         });
         return;
       }
+      const basePayload = await currentPayrollDataset();
+      const payload = mergePayrollDatasets(basePayload, parsedPayload);
+      fs.writeFileSync(pendingPath, JSON.stringify(payload, null, 2), "utf8");
       ensureDir(historyDir);
       await persistImport(id, "imported", req.files, payload);
       fs.copyFileSync(pendingPath, path.join(historyDir, `${id}.payroll.json`));
