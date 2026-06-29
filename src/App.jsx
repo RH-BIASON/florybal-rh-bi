@@ -124,6 +124,17 @@ function variablesValue(item) {
   return sum(item.events || [], (event) => (variableKind(event) ? event.value : 0));
 }
 
+function validLoanEvent(event) {
+  const description = event.description.toLowerCase();
+  return description.includes("consign") && event.code !== "49992" && !description.includes("estorno");
+}
+
+function loanValue(item) {
+  const events = item.loans?.events || [];
+  if (events.length) return sum(events, (event) => (validLoanEvent(event) ? event.value : 0));
+  return item.loans?.value || 0;
+}
+
 function absenceKind(event) {
   const description = event.description.toLowerCase();
   if (event.code === "00201" || description.includes("faltas não justificadas") || description.includes("faltas nao justificadas")) return "Faltas";
@@ -554,7 +565,7 @@ function buildAnalytics(rows) {
   const discounts = sum(rows, (item) => item.totals.discounts);
   const admissions = rows.filter((item) => item.admissionDate?.slice(0, 7) === item.period?.key);
   const resignations = rows.filter((item) => item.resignationDate?.slice(0, 7) === item.period?.key);
-  const loans = rows.filter((item) => item.loans.value > 0);
+  const loans = rows.filter((item) => loanValue(item) > 0);
   const vacations = rows.filter((item) => item.vacation.cost > 0 || item.vacation.start);
   const alerts = rows.filter((item) => item.validation.length || item.overtime.hours > 40 || (item.absence?.hours || 0) >= 8);
 
@@ -604,7 +615,7 @@ function buildAnalytics(rows) {
     monthRow.gross += item.totals.gross || 0;
     monthRow.discounts += item.totals.discounts || 0;
     monthRow.net += item.totals.net || 0;
-    monthRow.loans += item.loans.value || 0;
+    monthRow.loans += loanValue(item);
     monthRow.vacations += item.vacation.cost || 0;
     monthRow.absenceHours += item.absence?.hours || 0;
     monthRow.absenceValue += item.absence?.value || 0;
@@ -620,7 +631,7 @@ function buildAnalytics(rows) {
     const branchRow = byBranchMap.get(branch);
     branchRow.gross += item.totals.gross || 0;
     branchRow.net += item.totals.net || 0;
-    branchRow.loans += item.loans.value || 0;
+    branchRow.loans += loanValue(item);
     branchRow.vacations += item.vacation.cost || 0;
     if (item.admissionDate?.slice(0, 7) === month) branchRow.admissions += 1;
     if (item.resignationDate?.slice(0, 7) === month) branchRow.resignations += 1;
@@ -1226,7 +1237,7 @@ function Benefits({ analytics }) {
         </Chart>
       </Panel>
       <Panel title="Empréstimos consignados" icon={Banknote}>
-        <DataTable columns={["Contrato", "Colaborador", "Matriz/Filial", "Mês", "Valor"]} rows={analytics.loans.slice(0, 80).map((item) => [item.contract, item.name, branchLabel(item.branch), item.period.label, currency(item.loans.value)])} />
+        <DataTable columns={["Contrato", "Colaborador", "Matriz/Filial", "Mês", "Valor"]} rows={analytics.loans.slice(0, 80).map((item) => [item.contract, item.name, branchLabel(item.branch), item.period.label, currency(loanValue(item))])} />
       </Panel>
       <Panel title="Férias" icon={CalendarDays}>
         <DataTable
@@ -1820,7 +1831,7 @@ async function exportWorkbook(rows) {
       contract: item.contract,
       name: item.name,
       jobTitle: item.jobTitle || "",
-      loansValue: item.loans?.value || 0,
+      loansValue: loanValue(item),
     })),
     { currencyKeys: new Set(["loansValue"]) },
   );
@@ -1979,7 +1990,7 @@ function baseEmployeeRow(item) {
     absenceHours: item.absence?.hours || 0,
     absenceValue: item.absence?.value || 0,
     variablesValue: variablesValue(item),
-    loansValue: item.loans?.value || 0,
+    loansValue: loanValue(item),
     vacationCost: item.vacation?.cost || 0,
     vacationStart: excelDate(item.vacation?.start),
     vacationEnd: excelDate(item.vacation?.end),

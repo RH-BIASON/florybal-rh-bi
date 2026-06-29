@@ -123,6 +123,11 @@ def parse_events(lines):
 
 def event_matches_rule(event, rule):
     description = event["description"].lower()
+    if event["code"] in set(rule.get("excludeCodes", [])):
+        return False
+    excludes = [item.lower() for item in rule.get("excludeDescriptionIncludesAny", [])]
+    if excludes and any(item in description for item in excludes):
+        return False
     if event["code"] in set(rule.get("codes", [])):
         return True
     includes = [item.lower() for item in rule.get("descriptionIncludes", [])]

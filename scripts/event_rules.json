@@ -102,6 +102,12 @@
   "loans": [
     {
       "kind": "Consignado",
+      "excludeCodes": [
+        "49992"
+      ],
+      "excludeDescriptionIncludesAny": [
+        "estorno"
+      ],
       "descriptionIncludes": [
         "consign"
       ]
@@ -211,6 +217,7 @@
     {
       "kind": "Ajustes operacionais",
       "descriptionIncludesAny": [
+        "estorno",
         "restituição",
         "restituicao",
         "arredondamento"

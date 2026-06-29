@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from parse_payroll import build_dataset
+from parse_payroll import build_dataset, is_classified_event, loan_kind
 
 PDFS = [
     ROOT / "FOPAG Florybal 122025.pdf",
@@ -41,6 +41,16 @@ class PayrollParserTests(unittest.TestCase):
         self.assertGreater(sum(item["variables"]["value"] for item in employees), 1_000_000)
         self.assertGreater(sum(1 for item in employees if item["loans"]["value"] > 0), 200)
         self.assertGreater(sum(1 for item in employees if item["vacation"]["cost"] > 0), 150)
+
+    def test_estorno_econsignado_is_not_loan(self):
+        event = {
+            "code": "49992",
+            "description": "Estorno Prov eConsign s/Férias",
+            "quantity": None,
+            "value": 518,
+        }
+        self.assertIsNone(loan_kind(event))
+        self.assertTrue(is_classified_event(event))
 
     def test_no_branch_or_period_loss(self):
         employees = self.dataset["employees"]
