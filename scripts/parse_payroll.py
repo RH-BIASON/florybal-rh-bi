@@ -172,6 +172,10 @@ def vacation_kind(event):
     return event_kind(event, "vacations")
 
 
+def vacation_termination_kind(event):
+    return event_kind(event, "vacation_termination")
+
+
 def is_classified_event(event):
     return any(event_kind(event, group) for group in EVENT_RULES)
 
@@ -232,6 +236,7 @@ def extract_employee(chunk, period, branch, source_file, page_number):
     variable_events = [{**event, "kind": variable_kind(event)} for event in events if variable_kind(event)]
     loan_events = [event for event in events if loan_kind(event)]
     vacation_events = [event for event in events if vacation_kind(event)]
+    vacation_termination_events = [event for event in events if vacation_termination_kind(event)]
     unclassified_events = [event for event in events if not is_classified_event(event)]
 
     totals = {
@@ -314,6 +319,10 @@ def extract_employee(chunk, period, branch, source_file, page_number):
             "days": vacation_days,
             "cost": round(sum(event["value"] for event in vacation_events), 2),
             "events": vacation_events,
+        },
+        "vacationTermination": {
+            "cost": round(sum(event["value"] for event in vacation_termination_events), 2),
+            "events": vacation_termination_events,
         },
         "events": events,
         "validation": validation,

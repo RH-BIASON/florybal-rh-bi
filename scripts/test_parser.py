@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from parse_payroll import build_dataset, is_classified_event, loan_kind
+from parse_payroll import build_dataset, is_classified_event, loan_kind, overtime_reflex_kind, vacation_kind, vacation_termination_kind
 
 PDFS = [
     ROOT / "FOPAG Florybal 122025.pdf",
@@ -51,6 +51,16 @@ class PayrollParserTests(unittest.TestCase):
         }
         self.assertIsNone(loan_kind(event))
         self.assertTrue(is_classified_event(event))
+
+    def test_vacation_and_termination_vacation_are_separated(self):
+        regular = {"code": "00061", "description": "Férias", "quantity": None, "value": 100}
+        termination = {"code": "00070", "description": "Férias Proporcionais", "quantity": None, "value": 100}
+        self.assertEqual(vacation_kind(regular), "Ferias")
+        self.assertIsNone(overtime_reflex_kind(regular))
+        self.assertIsNone(vacation_termination_kind(regular))
+        self.assertEqual(vacation_termination_kind(termination), "Ferias rescisorias")
+        self.assertIsNone(overtime_reflex_kind(termination))
+        self.assertIsNone(vacation_kind(termination))
 
     def test_no_branch_or_period_loss(self):
         employees = self.dataset["employees"]

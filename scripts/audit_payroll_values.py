@@ -157,9 +157,10 @@ def audit_category_sums(employee):
         ("variables", "value", sum(event.get("value", 0) for event in employee["variables"]["events"])),
         ("loans", "value", sum(event.get("value", 0) for event in employee["loans"]["events"])),
         ("vacation", "cost", sum(event.get("value", 0) for event in employee["vacation"]["events"])),
+        ("vacationTermination", "cost", sum(event.get("value", 0) for event in employee.get("vacationTermination", {}).get("events", []))),
     ]
     for group, field, calculated in checks:
-        expected = employee[group].get(field) or 0
+        expected = employee.get(group, {}).get(field) or 0
         if round(calculated - expected, 2) != 0:
             issues.append(
                 {

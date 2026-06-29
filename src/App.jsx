@@ -44,6 +44,8 @@ const chargeLabels = {
 
 const chartColors = ["#f59e0b", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64748b", "#0f766e"];
 const tokenKey = "florybal_bi_token";
+const vacationCodes = new Set(["00061", "00062", "00063", "00065", "00066", "00067", "00068", "00069", "00081", "00083", "00085", "00086", "00165", "00166", "00167", "00197"]);
+const vacationTerminationCodes = new Set(["00070", "00071", "00072", "00073", "00075", "00076", "00077", "00078", "00079", "00080", "00176", "00177", "00178", "00179", "17001", "17002", "17006", "17007", "17008", "17099"]);
 
 function currency(value) {
   return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -99,6 +101,7 @@ function overtimeKind(event) {
 
 function overtimeReflectionKind(event) {
   const description = event.description.toLowerCase();
+  if (vacationCodes.has(event.code) || vacationTerminationCodes.has(event.code)) return null;
   if (["00030", "00058", "00065", "00076", "00077", "15006", "16006", "17006"].includes(event.code)) return "Reflexo HE";
   if (
     description.includes("repouso s/horas extras") ||
@@ -133,6 +136,18 @@ function loanValue(item) {
   const events = item.loans?.events || [];
   if (events.length) return sum(events, (event) => (validLoanEvent(event) ? event.value : 0));
   return item.loans?.value || 0;
+}
+
+function vacationValue(item) {
+  const events = item.events || item.vacation?.events || [];
+  if (events.length) return sum(events, (event) => (vacationCodes.has(event.code) ? event.value : 0));
+  return item.vacation?.cost || 0;
+}
+
+function vacationTerminationValue(item) {
+  const events = item.events || item.vacationTermination?.events || [];
+  if (events.length) return sum(events, (event) => (vacationTerminationCodes.has(event.code) ? event.value : 0));
+  return item.vacationTermination?.cost || 0;
 }
 
 function absenceKind(event) {
@@ -403,9 +418,9 @@ function App() {
             ["movement", Users, "Admissões e rescisões"],
             ["overtime", Clock3, "Horas extras"],
             ["attendance", AlertTriangle, "Faltas e atrasos"],
-            ["variables", BriefcaseBusiness, "Variáveis"],
+            ["variables", BriefcaseBusiness, "Variáveis e consignados"],
             ["charges", Landmark, "Encargos"],
-            ["benefits", Banknote, "Férias e consignados"],
+            ["benefits", CalendarDays, "Férias"],
             ["audit", ClipboardCheck, "Auditoria"],
             ...(isAdmin ? [["access", UserPlus, "Acessos"]] : []),
           ].map(([key, Icon, label]) => (
@@ -566,7 +581,8 @@ function buildAnalytics(rows) {
   const admissions = rows.filter((item) => item.admissionDate?.slice(0, 7) === item.period?.key);
   const resignations = rows.filter((item) => item.resignationDate?.slice(0, 7) === item.period?.key);
   const loans = rows.filter((item) => loanValue(item) > 0);
-  const vacations = rows.filter((item) => item.vacation.cost > 0 || item.vacation.start);
+  const vacations = rows.filter((item) => vacationValue(item) > 0 || item.vacation.start);
+  const vacationTerminations = rows.filter((item) => vacationTerminationValue(item) > 0);
   const alerts = rows.filter((item) => item.validation.length || item.overtime.hours > 40 || (item.absence?.hours || 0) >= 8);
 
   const byMonthMap = new Map();
@@ -595,6 +611,7 @@ function buildAnalytics(rows) {
         resignations: 0,
         loans: 0,
         vacations: 0,
+        vacationTerminations: 0,
         overtime50Hours: 0,
         overtime50Value: 0,
         overtime100Hours: 0,
@@ -616,7 +633,8 @@ function buildAnalytics(rows) {
     monthRow.discounts += item.totals.discounts || 0;
     monthRow.net += item.totals.net || 0;
     monthRow.loans += loanValue(item);
-    monthRow.vacations += item.vacation.cost || 0;
+    monthRow.vacations += vacationValue(item);
+    monthRow.vacationTerminations += vacationTerminationValue(item);
     monthRow.absenceHours += item.absence?.hours || 0;
     monthRow.absenceValue += item.absence?.value || 0;
     if ((item.absence?.hours || 0) >= 24) monthRow.absenceRed += 1;
@@ -626,13 +644,14 @@ function buildAnalytics(rows) {
     if (item.resignationDate?.slice(0, 7) === month) monthRow.resignations += 1;
 
     if (!byBranchMap.has(branch)) {
-      byBranchMap.set(branch, { branch, branchCode, gross: 0, net: 0, loans: 0, vacations: 0, admissions: 0, resignations: 0, employees: new Set(), alerts: 0 });
+      byBranchMap.set(branch, { branch, branchCode, gross: 0, net: 0, loans: 0, vacations: 0, vacationTerminations: 0, admissions: 0, resignations: 0, employees: new Set(), alerts: 0 });
     }
     const branchRow = byBranchMap.get(branch);
     branchRow.gross += item.totals.gross || 0;
     branchRow.net += item.totals.net || 0;
     branchRow.loans += loanValue(item);
-    branchRow.vacations += item.vacation.cost || 0;
+    branchRow.vacations += vacationValue(item);
+    branchRow.vacationTerminations += vacationTerminationValue(item);
     if (item.admissionDate?.slice(0, 7) === month) branchRow.admissions += 1;
     if (item.resignationDate?.slice(0, 7) === month) branchRow.resignations += 1;
     branchRow.employees.add(personKey(item));
@@ -804,7 +823,7 @@ function buildAnalytics(rows) {
     { hours50: 0, value50: 0, hours100: 0, value100: 0, reflectionValue: 0 },
   );
 
-  return { rows, records, employees, payroll, net, discounts, admissions, resignations, loans, vacations, alerts, byMonth, byBranch, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop };
+  return { rows, records, employees, payroll, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, alerts, byMonth, byBranch, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop };
 }
 
 function toggleSet(value, setter) {
@@ -916,7 +935,7 @@ function Overview({ analytics }) {
       </Panel>
       <Panel title="Todas as filiais no filtro" icon={Landmark} wide>
         <DataTable
-          columns={["Filial", "Colaboradores", "Bruto", "Líquido", "Admissões", "Rescisões", "Consignados", "Férias"]}
+          columns={["Filial", "Colaboradores", "Bruto", "Líquido", "Admissões", "Rescisões", "Consignados", "Férias", "Férias rescisórias"]}
           rows={analytics.byBranch.map((item) => [
             item.branch,
             item.employees,
@@ -926,6 +945,7 @@ function Overview({ analytics }) {
             item.resignations,
             currency(item.loans),
             currency(item.vacations),
+            currency(item.vacationTerminations),
           ])}
         />
       </Panel>
@@ -1111,6 +1131,7 @@ function Attendance({ analytics }) {
 
 function Variables({ analytics }) {
   const total = sum(analytics.variableBreakdown, (item) => item.value);
+  const loansTotal = sum(analytics.rows, loanValue);
   const categoryValue = (name) => analytics.variableBreakdown.find((item) => item.name === name)?.value || 0;
   const topRows = analytics.variableTop.map((item) => [
     item.branch,
@@ -1130,6 +1151,7 @@ function Variables({ analytics }) {
           <div><span>Comissões</span><strong>{compactCurrency(categoryValue("Comissões"))}</strong><small>{currency(categoryValue("Comissões"))}</small></div>
           <div><span>Prêmios e bonificações</span><strong>{compactCurrency(categoryValue("Prêmios e bonificações"))}</strong><small>{currency(categoryValue("Prêmios e bonificações"))}</small></div>
           <div><span>Adicionais</span><strong>{compactCurrency(categoryValue("Adicionais"))}</strong><small>{currency(categoryValue("Adicionais"))}</small></div>
+          <div><span>Consignados</span><strong>{compactCurrency(loansTotal)}</strong><small>{currency(loansTotal)}</small></div>
         </div>
       </Panel>
       <Panel title="Variáveis por competência" icon={TrendingUp} wide>
@@ -1170,6 +1192,20 @@ function Variables({ analytics }) {
       </Panel>
       <Panel title="Top colaboradores por variável" icon={Users}>
         <DataTable columns={["Matriz/Filial", "Contrato", "Colaborador", "Comissões", "Prêmios", "Adicionais", "Total"]} rows={topRows} limit={10} />
+      </Panel>
+      <Panel title="Consignados por competência" icon={Banknote}>
+        <Chart>
+          <BarChart data={analytics.byMonth}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" />
+            <YAxis tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
+            <Tooltip formatter={(value) => currency(value)} />
+            <Bar dataKey="loans" name="Consignados" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </Chart>
+      </Panel>
+      <Panel title="Empréstimos consignados" icon={Banknote}>
+        <DataTable columns={["Contrato", "Colaborador", "Matriz/Filial", "Mês", "Valor"]} rows={analytics.loans.slice(0, 80).map((item) => [item.contract, item.name, branchLabel(item.branch), item.period.label, currency(loanValue(item))])} />
       </Panel>
     </section>
   );
@@ -1214,35 +1250,33 @@ function Charges({ analytics }) {
 function Benefits({ analytics }) {
   return (
     <section className="grid two">
-      <Panel title="Consignados por competência" icon={Banknote}>
+      <Panel title="Férias e férias rescisórias por competência" icon={CalendarDays} wide>
         <Chart>
           <BarChart data={analytics.byMonth}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="label" />
             <YAxis tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
             <Tooltip formatter={(value) => currency(value)} />
-            <Bar dataKey="loans" name="Consignados" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+            <Legend />
+            <Bar dataKey="vacations" name="Férias" fill="#0f766e" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="vacationTerminations" name="Férias rescisórias" fill="#ef4444" radius={[4, 4, 0, 0]} />
           </BarChart>
         </Chart>
       </Panel>
-      <Panel title="Férias por competência" icon={CalendarDays}>
-        <Chart>
-          <BarChart data={analytics.byMonth}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="label" />
-            <YAxis tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
-            <Tooltip formatter={(value) => currency(value)} />
-            <Bar dataKey="vacations" name="Custo de férias" fill="#0f766e" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </Chart>
-      </Panel>
-      <Panel title="Empréstimos consignados" icon={Banknote}>
-        <DataTable columns={["Contrato", "Colaborador", "Matriz/Filial", "Mês", "Valor"]} rows={analytics.loans.slice(0, 80).map((item) => [item.contract, item.name, branchLabel(item.branch), item.period.label, currency(loanValue(item))])} />
+      <Panel title="Resumo por competência" icon={ClipboardCheck}>
+        <DataTable columns={["Mês", "Férias", "Férias rescisórias"]} rows={analytics.byMonth.map((item) => [item.label, currency(item.vacations), currency(item.vacationTerminations)])} />
       </Panel>
       <Panel title="Férias" icon={CalendarDays}>
         <DataTable
           columns={["Colaborador", "Matriz/Filial", "Saída", "Dias", "Custo"]}
-          rows={analytics.vacations.slice(0, 80).map((item) => [item.name, branchLabel(item.branch), shortDate(item.vacation.start), item.vacation.days || "-", currency(item.vacation.cost)])}
+          rows={analytics.vacations.slice(0, 80).map((item) => [item.name, branchLabel(item.branch), shortDate(item.vacation.start), item.vacation.days || "-", currency(vacationValue(item))])}
+        />
+      </Panel>
+      <Panel title="Férias rescisórias" icon={ShieldAlert}>
+        <DataTable
+          columns={["Colaborador", "Matriz/Filial", "Mês", "Contrato", "Valor"]}
+          rows={analytics.vacationTerminations.slice(0, 80).map((item) => [item.name, branchLabel(item.branch), item.period.label, item.contract, currency(vacationTerminationValue(item))])}
+          empty="Sem férias rescisórias no filtro."
         />
       </Panel>
     </section>
@@ -1691,6 +1725,7 @@ async function exportWorkbook(rows) {
       { header: "Faltas/Atrasos valor", key: "absenceValue", width: 18 },
       { header: "Consignados", key: "loans", width: 16 },
       { header: "Ferias", key: "vacations", width: 16 },
+      { header: "Ferias Rec", key: "vacationTerminations", width: 16 },
     ],
     analytics.byMonth.map((item) => ({
       period: item.label,
@@ -1709,12 +1744,13 @@ async function exportWorkbook(rows) {
       absenceValue: item.absenceValue,
       loans: item.loans,
       vacations: item.vacations,
+      vacationTerminations: item.vacationTerminations,
     })),
-    { currencyKeys: new Set(["gross", "discounts", "net", "overtime50Value", "overtime100Value", "overtimeReflectionValue", "absenceValue", "loans", "vacations"]) },
+    { currencyKeys: new Set(["gross", "discounts", "net", "overtime50Value", "overtime100Value", "overtimeReflectionValue", "absenceValue", "loans", "vacations", "vacationTerminations"]) },
   );
 
   addSheet(workbook, "Colaboradores", baseColumns(), rows.map(baseEmployeeRow), {
-    currencyKeys: new Set(["gross", "discounts", "net", "salary", "overtimeValue", "overtimeReflectionValue", "absenceValue", "variablesValue", "loansValue", "vacationCost"]),
+    currencyKeys: new Set(["gross", "discounts", "net", "salary", "overtimeValue", "overtimeReflectionValue", "absenceValue", "variablesValue", "loansValue", "vacationCost", "vacationTerminationCost"]),
     dateKeys: new Set(["admissionDate", "resignationDate", "vacationStart", "vacationEnd"]),
   });
 
@@ -1816,9 +1852,24 @@ async function exportWorkbook(rows) {
       vacationStart: excelDate(item.vacation?.start),
       vacationEnd: excelDate(item.vacation?.end),
       vacationDays: item.vacation?.days || "",
-      vacationCost: item.vacation?.cost || 0,
+      vacationCost: vacationValue(item),
     })),
     { currencyKeys: new Set(["vacationCost"]), dateKeys: new Set(["vacationStart", "vacationEnd"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Ferias Rec",
+    [...personColumns(), { header: "Valor", key: "vacationTerminationCost", width: 16 }],
+    analytics.vacationTerminations.map((item) => ({
+      period: item.period?.label,
+      branch: branchLabel(item.branch),
+      contract: item.contract,
+      name: item.name,
+      jobTitle: item.jobTitle || "",
+      vacationTerminationCost: vacationTerminationValue(item),
+    })),
+    { currencyKeys: new Set(["vacationTerminationCost"]) },
   );
 
   addSheet(
@@ -1964,6 +2015,7 @@ function baseColumns() {
     { header: "Variaveis", key: "variablesValue", width: 16 },
     { header: "Consignado", key: "loansValue", width: 16 },
     { header: "Ferias", key: "vacationCost", width: 16 },
+    { header: "Ferias Rec", key: "vacationTerminationCost", width: 16 },
     { header: "Inicio Ferias", key: "vacationStart", width: 13 },
     { header: "Fim Ferias", key: "vacationEnd", width: 13 },
     { header: "Dias Ferias", key: "vacationDays", width: 12 },
@@ -1991,7 +2043,8 @@ function baseEmployeeRow(item) {
     absenceValue: item.absence?.value || 0,
     variablesValue: variablesValue(item),
     loansValue: loanValue(item),
-    vacationCost: item.vacation?.cost || 0,
+    vacationCost: vacationValue(item),
+    vacationTerminationCost: vacationTerminationValue(item),
     vacationStart: excelDate(item.vacation?.start),
     vacationEnd: excelDate(item.vacation?.end),
     vacationDays: item.vacation?.days || "",

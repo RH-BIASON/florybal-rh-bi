@@ -108,6 +108,7 @@ function eventGroups(employee, event) {
   if (inList(employee.variables?.events)) groups.push(["variables", employee.variables.events.find((item) => item.code === event.code && item.description === event.description && item.value === event.value)?.kind || null]);
   if (inList(employee.loans?.events)) groups.push(["loans", null]);
   if (inList(employee.vacation?.events)) groups.push(["vacations", null]);
+  if (inList(employee.vacationTermination?.events)) groups.push(["vacation_termination", null]);
   return groups.length ? groups : [[null, null]];
 }
 
