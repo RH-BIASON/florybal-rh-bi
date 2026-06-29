@@ -194,6 +194,26 @@ async function currentPayrollDataset() {
   return null;
 }
 
+function importResponseSummary(parsedPayload, files) {
+  const rows = parsedPayload.employees || [];
+  const branches = parsedPayload.branches || [];
+  const admissions = rows.filter((row) => row.admission?.date).length;
+  const terminations = rows.filter((row) => row.termination?.date).length;
+  return {
+    files: files.map((file) => file.originalname),
+    periods: parsedPayload.periods || [],
+    branches: branches.map((branch) => ({ code: branch.code, label: branch.label })),
+    branchCount: branches.length,
+    employeeRecords: parsedPayload.quality?.employeeRecords || rows.length,
+    gross: rows.reduce((total, row) => total + Number(row.totals?.gross || 0), 0),
+    net: rows.reduce((total, row) => total + Number(row.totals?.net || 0), 0),
+    admissions,
+    terminations,
+    reconciliationMatched: Boolean(parsedPayload.quality?.reconciliationMatched),
+    unclassifiedEventCount: parsedPayload.quality?.unclassifiedEventCount || 0,
+  };
+}
+
 app.get("/api/payroll", requireAuth, async (_req, res) => {
   if (isSupabaseConfigured()) {
     try {
@@ -338,6 +358,7 @@ app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, r
         return;
       }
       const payload = mergePayrollDatasets(basePayload, parsedPayload);
+      const importSummary = importResponseSummary(parsedPayload, req.files);
       fs.writeFileSync(pendingPath, JSON.stringify(payload, null, 2), "utf8");
       ensureDir(historyDir);
       await persistImport(id, "imported", req.files, payload);
@@ -345,7 +366,7 @@ app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, r
       fs.copyFileSync(pendingPath, outputPath);
       fs.rmSync(pendingPath, { force: true });
       for (const file of req.files) fs.rm(file.path, { force: true }, () => {});
-      res.sendFile(outputPath);
+      res.json({ dataset: payload, importSummary });
     } catch (error) {
       fs.rm(pendingPath, { force: true }, () => {});
       try {

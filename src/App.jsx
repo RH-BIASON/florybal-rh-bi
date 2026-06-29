@@ -163,6 +163,7 @@ function App() {
   const [query, setQuery] = useState("");
   const [view, setView] = useState("overview");
   const [replacePrompt, setReplacePrompt] = useState(null);
+  const [importModal, setImportModal] = useState(null);
   const [removingPeriod, setRemovingPeriod] = useState("");
 
   const isAdmin = currentUser?.role === "admin";
@@ -278,18 +279,38 @@ function App() {
     if (options.replaceExisting) form.append("replaceExisting", "true");
     setUploading(true);
     setError("");
+    setImportModal({
+      status: "running",
+      files: pdfs.map((file) => file.name),
+      replaceExisting: Boolean(options.replaceExisting),
+      startedAt: new Date().toISOString(),
+    });
     try {
       const response = await apiRequest("/api/upload", { method: "POST", body: form });
-      const payload = await response.json();
-      if (response.status === 409 && payload.code === "PERIOD_EXISTS") {
-        setReplacePrompt({ periods: payload.periods || [], files: pdfs });
+      const result = await response.json();
+      if (response.status === 409 && result.code === "PERIOD_EXISTS") {
+        setImportModal(null);
+        setReplacePrompt({ periods: result.periods || [], files: pdfs });
         return;
       }
-      if (!response.ok) throw new Error(payload.error || "Falha ao importar PDFs");
+      if (!response.ok) throw new Error(result.error || "Falha ao importar PDFs");
+      const payload = result.dataset || result;
       applyDataset(payload);
       await refreshImportHistory();
+      setImportModal({
+        status: "done",
+        files: pdfs.map((file) => file.name),
+        summary: result.importSummary || importSummaryFromDataset(payload, pdfs),
+        replaceExisting: Boolean(options.replaceExisting),
+      });
     } catch (err) {
       setError(err.message);
+      setImportModal({
+        status: "error",
+        files: pdfs.map((file) => file.name),
+        error: err.message,
+        replaceExisting: Boolean(options.replaceExisting),
+      });
     } finally {
       setUploading(false);
     }
@@ -409,6 +430,7 @@ function App() {
         </header>
 
         {error && <div className="notice danger">{error}</div>}
+        {importModal && <ImportProgressModal state={importModal} onClose={() => setImportModal(null)} />}
         {replacePrompt && (
           <ConfirmDialog
             title="Substituir competência existente?"
@@ -1494,6 +1516,93 @@ function ConfirmDialog({ title, message, confirmLabel, cancelLabel, onConfirm, o
           <button className="secondary-action ghost" onClick={onCancel}>{cancelLabel}</button>
           <button className="secondary-action" onClick={onConfirm}>{confirmLabel}</button>
         </div>
+      </section>
+    </div>
+  );
+}
+
+function importSummaryFromDataset(payload, files) {
+  const rows = payload.employees || [];
+  return {
+    files: files.map((file) => file.name),
+    periods: payload.periods || [],
+    branches: payload.branches || [],
+    branchCount: payload.branches?.length || 0,
+    employeeRecords: payload.quality?.employeeRecords || rows.length,
+    gross: sum(rows, (row) => row.totals?.gross),
+    net: sum(rows, (row) => row.totals?.net),
+    admissions: rows.filter((row) => row.admission?.date).length,
+    terminations: rows.filter((row) => row.termination?.date).length,
+    reconciliationMatched: Boolean(payload.quality?.reconciliationMatched),
+    unclassifiedEventCount: payload.quality?.unclassifiedEventCount || 0,
+  };
+}
+
+function ImportProgressModal({ state, onClose }) {
+  const running = state.status === "running";
+  const done = state.status === "done";
+  const failed = state.status === "error";
+  const summary = state.summary || {};
+  const steps = ["Enviando PDFs", "Extraindo folha", "Conferindo totais", "Salvando histórico"];
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
+        <div className={failed ? "import-icon danger" : done ? "import-icon success" : "import-icon"}>
+          {failed ? <AlertTriangle size={24} /> : done ? <CheckCircle2 size={24} /> : <RefreshCw size={24} />}
+        </div>
+        <div className="import-copy">
+          <span>{state.replaceExisting ? "Substituição de competência" : "Importação de folha"}</span>
+          <h2 id="import-title">
+            {running && "Importando e conferindo PDFs"}
+            {done && "Importação concluída"}
+            {failed && "Importação não concluída"}
+          </h2>
+          <p>
+            {running && "Mantenha esta janela aberta enquanto o sistema lê a folha, valida os totais e salva o histórico."}
+            {done && "Os dados foram incorporados à base e já estão disponíveis nos filtros do painel."}
+            {failed && state.error}
+          </p>
+        </div>
+
+        <div className="import-files">
+          {(state.files || []).map((file) => (
+            <span key={file}>{file}</span>
+          ))}
+        </div>
+
+        {running && (
+          <div className="import-steps">
+            {steps.map((step) => (
+              <div key={step} className="import-step active">
+                <span />
+                {step}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {done && (
+          <div className="import-summary-grid">
+            <div><span>Períodos</span><strong>{(summary.periods || []).map(periodLabel).join(", ") || "-"}</strong></div>
+            <div><span>Filiais</span><strong>{summary.branchCount || summary.branches?.length || 0}</strong></div>
+            <div><span>Registros</span><strong>{Number(summary.employeeRecords || 0).toLocaleString("pt-BR")}</strong></div>
+            <div><span>Folha bruta</span><strong>{currency(summary.gross)}</strong></div>
+            <div><span>Líquido</span><strong>{currency(summary.net)}</strong></div>
+            <div><span>Admissões</span><strong>{summary.admissions || 0}</strong></div>
+            <div><span>Rescisões</span><strong>{summary.terminations || 0}</strong></div>
+            <div><span>Conferência</span><strong>{summary.reconciliationMatched ? "Valores batem" : "Revisar"}</strong></div>
+            <div><span>Rubricas novas</span><strong>{summary.unclassifiedEventCount || 0}</strong></div>
+          </div>
+        )}
+
+        {!running && (
+          <div className="import-actions">
+            <button className="primary-action" onClick={onClose}>
+              Entendi
+            </button>
+          </div>
+        )}
       </section>
     </div>
   );
