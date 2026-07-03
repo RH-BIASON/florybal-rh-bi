@@ -1119,6 +1119,43 @@ function BranchRankingCard({ ranking, rows }) {
   );
 }
 
+function branchTop(rows, valueKey, limit = 5) {
+  return rows
+    .map((item) => ({ ...item, rankingValue: item[valueKey] || 0 }))
+    .filter((item) => item.rankingValue > 0)
+    .sort((a, b) => b.rankingValue - a.rankingValue)
+    .slice(0, limit);
+}
+
+function BranchMetricChart({ title, icon, rows, valueKey, barName = "Valor", formatter = currency, color = "#85523A", wide = false }) {
+  const data = branchTop(rows, valueKey).map((item) => ({
+    ...item,
+    label: item.branchCode,
+    value: item.rankingValue,
+  }));
+
+  return (
+    <Panel title={title} icon={icon} wide={wide}>
+      {data.length ? (
+        <Chart>
+          <BarChart data={data} layout="vertical" margin={{ left: 12, right: 22 }}>
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+            <XAxis type="number" tickFormatter={(value) => formatter(value)} />
+            <YAxis type="category" dataKey="label" width={44} tick={{ fontSize: 11 }} />
+            <Tooltip
+              formatter={(value) => [formatter(value), barName]}
+              labelFormatter={(label) => data.find((item) => item.label === label)?.branch || label}
+            />
+            <Bar dataKey="value" name={barName} radius={[0, 4, 4, 0]} fill={color} />
+          </BarChart>
+        </Chart>
+      ) : (
+        <div className="empty-state">Sem dados no filtro.</div>
+      )}
+    </Panel>
+  );
+}
+
 function Movement({ analytics }) {
   return (
     <section className="grid two">
@@ -1141,6 +1178,8 @@ function Movement({ analytics }) {
       <Panel title="Rescisões" icon={ShieldAlert}>
         <PeopleTable rows={analytics.resignations} dateField="resignationDate" empty="Sem rescisões no filtro." />
       </Panel>
+      <BranchMetricChart title="Top filiais por admissões" icon={CheckCircle2} rows={analytics.branchRanking} valueKey="admissions" barName="Admissões" formatter={(value) => value.toLocaleString("pt-BR")} color="#10b981" />
+      <BranchMetricChart title="Top filiais por rescisões" icon={ShieldAlert} rows={analytics.branchRanking} valueKey="resignations" barName="Rescisões" formatter={(value) => value.toLocaleString("pt-BR")} color="#ef4444" />
     </section>
   );
 }
@@ -1195,6 +1234,7 @@ function Overtime({ analytics }) {
       <Panel title="Top 5 mais horas extras" icon={AlertTriangle}>
         <OvertimeRanking rows={analytics.overtimeTop} />
       </Panel>
+      <BranchMetricChart title="Top filiais por horas extras" icon={Landmark} rows={analytics.branchRanking} valueKey="overtimeTotalHours" barName="Horas" formatter={formatHours} color="#85523A" wide />
       <Panel title="Resumo mensal 50%, 100% e reflexos" icon={CalendarDays} wide>
         <DataTable columns={["Mês", "HE 50%", "Valor 50%", "HE 100%", "Valor 100%", "Reflexos HE", "Total valor"]} rows={overtimeRows} />
       </Panel>
@@ -1282,6 +1322,7 @@ function Attendance({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
+      <BranchMetricChart title="Top filiais por faltas/atrasos" icon={Landmark} rows={analytics.branchRanking} valueKey="absenceHours" barName="Horas" formatter={formatHours} color="#f59e0b" />
       <Panel title="Resumo por competência" icon={CalendarDays}>
         <DataTable columns={["Mês", "Horas", "Valor", "Amarelos", "Vermelhos"]} rows={monthlyRows} />
       </Panel>
@@ -1334,6 +1375,7 @@ function MedicalCertificates({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
+      <BranchMetricChart title="Top filiais por atestados" icon={Landmark} rows={analytics.branchRanking} valueKey="medicalCertificateHours" barName="Horas" formatter={formatHours} color="#2563eb" />
       <Panel title="Resumo mensal" icon={CalendarDays}>
         <DataTable
           columns={["Mês", "Ocorrências", "Horas", "Valor"]}
@@ -1392,6 +1434,7 @@ function Variables({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
+      <BranchMetricChart title="Top filiais por variáveis" icon={Landmark} rows={analytics.branchRanking} valueKey="variableTotal" barName="Variáveis" formatter={compactCurrency} color="#85523A" />
       <Panel title="Composição das variáveis" icon={Banknote}>
         <Chart>
           <BarChart data={analytics.variableBreakdown} layout="vertical" margin={{ left: 28, right: 16 }}>
@@ -1428,6 +1471,7 @@ function Variables({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
+      <BranchMetricChart title="Top filiais por consignados" icon={Landmark} rows={analytics.branchRanking} valueKey="loans" barName="Consignados" formatter={compactCurrency} color="#8b5cf6" />
       <Panel title="Empréstimos consignados" icon={Banknote}>
         <DataTable columns={["Contrato", "Colaborador", "Matriz/Filial", "Mês", "Valor"]} rows={analytics.loans.slice(0, 80).map((item) => [item.contract, item.name, branchLabel(item.branch), item.period.label, currency(loanValue(item))])} />
       </Panel>
@@ -1449,6 +1493,7 @@ function Charges({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
+      <BranchMetricChart title="Top filiais por encargos" icon={Landmark} rows={analytics.branchRanking} valueKey="charges" barName="Encargos" formatter={compactCurrency} color="#85523A" />
       <Panel title="Valores por tipo" icon={Banknote}>
         <DataTable columns={["Encargo", "Valor"]} rows={analytics.charges.map((item) => [item.name, currency(item.value)])} />
       </Panel>
@@ -1487,6 +1532,8 @@ function Benefits({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
+      <BranchMetricChart title="Top filiais por férias" icon={Landmark} rows={analytics.branchRanking} valueKey="vacations" barName="Férias" formatter={compactCurrency} color="#0f766e" />
+      <BranchMetricChart title="Top filiais por férias rescisórias" icon={ShieldAlert} rows={analytics.branchRanking} valueKey="vacationTerminations" barName="Férias rescisórias" formatter={compactCurrency} color="#ef4444" />
       <Panel title="Resumo por competência" icon={ClipboardCheck}>
         <DataTable columns={["Mês", "Férias", "Férias rescisórias"]} rows={analytics.byMonth.map((item) => [item.label, currency(item.vacations), currency(item.vacationTerminations)])} />
       </Panel>
