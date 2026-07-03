@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from parse_payroll import build_dataset, is_classified_event, loan_kind, overtime_reflex_kind, vacation_kind, vacation_termination_kind
+from parse_payroll import build_dataset, is_classified_event, loan_kind, medical_certificate_kind, overtime_reflex_kind, vacation_kind, vacation_termination_kind
 
 PDFS = [
     ROOT / "FOPAG Florybal 122025.pdf",
@@ -68,6 +68,15 @@ class PayrollParserTests(unittest.TestCase):
         self.assertTrue(all(item["period"]["key"] for item in employees))
         self.assertIn("000", {item["branch"]["code"] for item in employees})
         self.assertIn("019", {item["branch"]["code"] for item in employees})
+
+    def test_reflex_and_medical_certificate_use_exact_codes(self):
+        reflex = {"code": "00030", "description": "Reflexo HE", "quantity": None, "value": 100}
+        old_reflex = {"code": "00058", "description": "Media de horas extras", "quantity": None, "value": 100}
+        certificate = {"code": "00007", "description": "Atestado", "quantity": 8, "value": 100}
+        self.assertEqual(overtime_reflex_kind(reflex), "Reflexo HE")
+        self.assertIsNone(overtime_reflex_kind(old_reflex))
+        self.assertEqual(medical_certificate_kind(certificate), "Atestado")
+        self.assertTrue(is_classified_event(old_reflex))
 
 
 if __name__ == "__main__":

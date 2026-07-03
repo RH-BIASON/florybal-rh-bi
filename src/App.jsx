@@ -100,27 +100,30 @@ function overtimeKind(event) {
 }
 
 function overtimeReflectionKind(event) {
-  const description = event.description.toLowerCase();
-  if (vacationCodes.has(event.code) || vacationTerminationCodes.has(event.code)) return null;
-  if (["00030", "00058", "00065", "00076", "00077", "15006", "16006", "17006"].includes(event.code)) return "Reflexo HE";
-  if (
-    description.includes("repouso s/horas extras") ||
-    description.includes("média de horas extras") ||
-    description.includes("media de horas extras") ||
-    description.includes("hrs extras") ||
-    description.includes("h.ext") ||
-    description.includes("hr.extra") ||
-    description.includes("h.extras") ||
-    description.includes("s/horas extras")
-  ) {
-    return "Reflexo HE";
-  }
-  return null;
+  return event.code === "00030" ? "Reflexo HE" : null;
 }
 
 function overtimeReflectionValue(item) {
-  if (typeof item.overtime?.reflexValue === "number") return item.overtime.reflexValue;
-  return sum(item.events || [], (event) => (overtimeReflectionKind(event) ? event.value : 0));
+  const events = item.events || item.overtime?.reflexes || [];
+  if (events.length) return sum(events, (event) => (overtimeReflectionKind(event) ? event.value : 0));
+  return item.overtime?.reflexValue || 0;
+}
+
+function medicalCertificateEvents(item) {
+  const events = item.events || item.medicalCertificates?.events || [];
+  return events.filter((event) => event.code === "00007");
+}
+
+function medicalCertificateHours(item) {
+  const events = medicalCertificateEvents(item);
+  if (events.length) return sum(events, (event) => event.quantity);
+  return item.medicalCertificates?.hours || 0;
+}
+
+function medicalCertificateValue(item) {
+  const events = medicalCertificateEvents(item);
+  if (events.length) return sum(events, (event) => event.value);
+  return item.medicalCertificates?.value || 0;
 }
 
 function variablesValue(item) {
@@ -418,6 +421,7 @@ function App() {
             ["movement", Users, "Admissões e rescisões"],
             ["overtime", Clock3, "Horas extras"],
             ["attendance", AlertTriangle, "Faltas e atrasos"],
+            ["certificates", ClipboardCheck, "Atestados"],
             ["variables", BriefcaseBusiness, "Variáveis e consignados"],
             ["charges", Landmark, "Encargos"],
             ["benefits", CalendarDays, "Férias"],
@@ -560,6 +564,7 @@ function App() {
         {view === "movement" && <Movement analytics={analytics} />}
         {view === "overtime" && <Overtime analytics={analytics} />}
         {view === "attendance" && <Attendance analytics={analytics} />}
+        {view === "certificates" && <MedicalCertificates analytics={analytics} />}
         {view === "variables" && <Variables analytics={analytics} />}
         {view === "charges" && <Charges analytics={analytics} />}
         {view === "benefits" && <Benefits analytics={analytics} />}
@@ -583,6 +588,7 @@ function buildAnalytics(rows) {
   const loans = rows.filter((item) => loanValue(item) > 0);
   const vacations = rows.filter((item) => vacationValue(item) > 0 || item.vacation.start);
   const vacationTerminations = rows.filter((item) => vacationTerminationValue(item) > 0);
+  const medicalCertificates = rows.filter((item) => medicalCertificateEvents(item).length > 0 || medicalCertificateHours(item) > 0 || medicalCertificateValue(item) > 0);
   const alerts = rows.filter((item) => item.validation.length || item.overtime.hours > 40 || (item.absence?.hours || 0) >= 8);
 
   const byMonthMap = new Map();
@@ -612,6 +618,9 @@ function buildAnalytics(rows) {
         loans: 0,
         vacations: 0,
         vacationTerminations: 0,
+        medicalCertificateHours: 0,
+        medicalCertificateValue: 0,
+        medicalCertificateRecords: 0,
         overtime50Hours: 0,
         overtime50Value: 0,
         overtime100Hours: 0,
@@ -635,6 +644,9 @@ function buildAnalytics(rows) {
     monthRow.loans += loanValue(item);
     monthRow.vacations += vacationValue(item);
     monthRow.vacationTerminations += vacationTerminationValue(item);
+    monthRow.medicalCertificateHours += medicalCertificateHours(item);
+    monthRow.medicalCertificateValue += medicalCertificateValue(item);
+    if (medicalCertificateEvents(item).length || medicalCertificateHours(item) || medicalCertificateValue(item)) monthRow.medicalCertificateRecords += 1;
     monthRow.absenceHours += item.absence?.hours || 0;
     monthRow.absenceValue += item.absence?.value || 0;
     if ((item.absence?.hours || 0) >= 24) monthRow.absenceRed += 1;
@@ -823,7 +835,7 @@ function buildAnalytics(rows) {
     { hours50: 0, value50: 0, hours100: 0, value100: 0, reflectionValue: 0 },
   );
 
-  return { rows, records, employees, payroll, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, alerts, byMonth, byBranch, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop };
+  return { rows, records, employees, payroll, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop };
 }
 
 function toggleSet(value, setter) {
@@ -1124,6 +1136,64 @@ function Attendance({ analytics }) {
       </Panel>
       <Panel title="Alertas para ação no mês" icon={AlertTriangle} wide>
         <DataTable columns={["Nível", "Mês", "Matriz/Filial", "Contrato", "Colaborador", "Horas", "Valor"]} rows={alertRows} empty="Sem alertas de faltas/atrasos no filtro." limit={120} />
+      </Panel>
+    </section>
+  );
+}
+
+function MedicalCertificates({ analytics }) {
+  const totalHours = sum(analytics.medicalCertificates, medicalCertificateHours);
+  const totalValue = sum(analytics.medicalCertificates, medicalCertificateValue);
+  const people = uniqueCount(analytics.medicalCertificates, (item) => `${item.branch?.code}-${item.contract}`);
+  const detailRows = analytics.medicalCertificates
+    .map((item) => [
+      item.period?.label,
+      branchLabel(item.branch),
+      item.contract,
+      item.name,
+      item.jobTitle || "-",
+      formatHours(medicalCertificateHours(item)),
+      currency(medicalCertificateValue(item)),
+    ])
+    .sort((a, b) => b[0].localeCompare(a[0]));
+
+  return (
+    <section className="grid two">
+      <Panel title="Atestados médicos" icon={ClipboardCheck} wide>
+        <div className="metric-inline">
+          <div><span>Colaboradores</span><strong>{people.toLocaleString("pt-BR")}</strong><small>No filtro atual</small></div>
+          <div><span>Ocorrências</span><strong>{analytics.medicalCertificates.length.toLocaleString("pt-BR")}</strong><small>Rubrica 00007</small></div>
+          <div><span>Horas</span><strong>{formatHours(totalHours)}</strong><small>Total informado na folha</small></div>
+          <div><span>Valor</span><strong>{compactCurrency(totalValue)}</strong><small>{currency(totalValue)}</small></div>
+        </div>
+      </Panel>
+      <Panel title="Atestados por competência" icon={TrendingUp} wide>
+        <Chart>
+          <BarChart data={analytics.byMonth}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" />
+            <YAxis />
+            <Tooltip formatter={(value, name) => [name === "Valor" ? currency(value) : Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 2 }), name]} />
+            <Legend />
+            <Bar dataKey="medicalCertificateHours" name="Horas" fill="#2563eb" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="medicalCertificateRecords" name="Ocorrências" fill="#10b981" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </Chart>
+      </Panel>
+      <Panel title="Resumo mensal" icon={CalendarDays}>
+        <DataTable
+          columns={["Mês", "Ocorrências", "Horas", "Valor"]}
+          rows={analytics.byMonth.map((item) => [item.label, item.medicalCertificateRecords, formatHours(item.medicalCertificateHours), currency(item.medicalCertificateValue)])}
+          empty="Sem atestados no filtro."
+        />
+      </Panel>
+      <Panel title="Atestados por colaborador" icon={Users}>
+        <DataTable
+          columns={["Mês", "Matriz/Filial", "Contrato", "Colaborador", "Cargo", "Horas", "Valor"]}
+          rows={detailRows}
+          empty="Sem atestados no filtro."
+          limit={120}
+        />
       </Panel>
     </section>
   );
@@ -1701,6 +1771,8 @@ async function exportWorkbook(rows) {
       { metric: "Horas extras 50%", value: analytics.overtimeTotals.hours50, type: "number" },
       { metric: "Horas extras 100%", value: analytics.overtimeTotals.hours100, type: "number" },
       { metric: "Reflexos HE", value: analytics.overtimeTotals.reflectionValue, type: "currency" },
+      { metric: "Atestados - horas", value: sum(analytics.medicalCertificates, medicalCertificateHours), type: "number" },
+      { metric: "Atestados - valor", value: sum(analytics.medicalCertificates, medicalCertificateValue), type: "currency" },
     ],
     { specialSummaryFormatting: true },
   );
@@ -1726,6 +1798,8 @@ async function exportWorkbook(rows) {
       { header: "Consignados", key: "loans", width: 16 },
       { header: "Ferias", key: "vacations", width: 16 },
       { header: "Ferias Rec", key: "vacationTerminations", width: 16 },
+      { header: "Atestados h", key: "medicalCertificateHours", width: 14 },
+      { header: "Atestados valor", key: "medicalCertificateValue", width: 16 },
     ],
     analytics.byMonth.map((item) => ({
       period: item.label,
@@ -1745,8 +1819,10 @@ async function exportWorkbook(rows) {
       loans: item.loans,
       vacations: item.vacations,
       vacationTerminations: item.vacationTerminations,
+      medicalCertificateHours: item.medicalCertificateHours,
+      medicalCertificateValue: item.medicalCertificateValue,
     })),
-    { currencyKeys: new Set(["gross", "discounts", "net", "overtime50Value", "overtime100Value", "overtimeReflectionValue", "absenceValue", "loans", "vacations", "vacationTerminations"]) },
+    { currencyKeys: new Set(["gross", "discounts", "net", "overtime50Value", "overtime100Value", "overtimeReflectionValue", "absenceValue", "loans", "vacations", "vacationTerminations", "medicalCertificateValue"]) },
   );
 
   addSheet(workbook, "Colaboradores", baseColumns(), rows.map(baseEmployeeRow), {
@@ -1805,6 +1881,26 @@ async function exportWorkbook(rows) {
       level: item.level || "-",
       hours: item.hours,
       value: item.value,
+    })),
+    { currencyKeys: new Set(["value"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Atestados",
+    [
+      ...personColumns(),
+      { header: "Horas", key: "hours", width: 12 },
+      { header: "Valor", key: "value", width: 16 },
+    ],
+    analytics.medicalCertificates.map((item) => ({
+      period: item.period?.label,
+      branch: branchLabel(item.branch),
+      contract: item.contract,
+      name: item.name,
+      jobTitle: item.jobTitle || "",
+      hours: medicalCertificateHours(item),
+      value: medicalCertificateValue(item),
     })),
     { currencyKeys: new Set(["value"]) },
   );

@@ -152,6 +152,8 @@ def audit_category_sums(employee):
     checks = [
         ("overtime", "value", sum(event.get("value", 0) for event in employee["overtime"]["events"])),
         ("overtime", "hours", sum(event.get("quantity") or 0 for event in employee["overtime"]["events"])),
+        ("medicalCertificates", "value", sum(event.get("value", 0) for event in employee.get("medicalCertificates", {}).get("events", []))),
+        ("medicalCertificates", "hours", sum(event.get("quantity") or 0 for event in employee.get("medicalCertificates", {}).get("events", []))),
         ("absence", "value", sum(event.get("value", 0) for event in employee["absence"]["events"])),
         ("absence", "hours", sum(event.get("quantity") or 0 for event in employee["absence"]["events"])),
         ("variables", "value", sum(event.get("value", 0) for event in employee["variables"]["events"])),

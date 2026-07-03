@@ -154,6 +154,10 @@ def overtime_reflex_kind(event):
     return event_kind(event, "overtime_reflexes")
 
 
+def medical_certificate_kind(event):
+    return event_kind(event, "medical_certificates")
+
+
 def absence_kind(event):
     return event_kind(event, "absence")
 
@@ -232,6 +236,7 @@ def extract_employee(chunk, period, branch, source_file, page_number):
 
     overtime_events = [event for event in events if overtime_kind(event)]
     overtime_reflex_events = [{**event, "kind": overtime_reflex_kind(event)} for event in events if overtime_reflex_kind(event)]
+    medical_certificate_events = [{**event, "kind": medical_certificate_kind(event)} for event in events if medical_certificate_kind(event)]
     absence_events = [{**event, "kind": absence_kind(event)} for event in events if absence_kind(event)]
     variable_events = [{**event, "kind": variable_kind(event)} for event in events if variable_kind(event)]
     loan_events = [event for event in events if loan_kind(event)]
@@ -268,6 +273,8 @@ def extract_employee(chunk, period, branch, source_file, page_number):
     overtime_hours = round(sum(event["quantity"] or 0 for event in overtime_events), 2)
     overtime_value = round(sum(event["value"] for event in overtime_events), 2)
     overtime_reflex_value = round(sum(event["value"] for event in overtime_reflex_events), 2)
+    medical_certificate_hours = round(sum(event["quantity"] or 0 for event in medical_certificate_events), 2)
+    medical_certificate_value = round(sum(event["value"] for event in medical_certificate_events), 2)
     absence_hours = round(sum(event["quantity"] or 0 for event in absence_events), 2)
     absence_value = round(sum(event["value"] for event in absence_events), 2)
     loan_value = round(sum(event["value"] for event in loan_events), 2)
@@ -309,6 +316,7 @@ def extract_employee(chunk, period, branch, source_file, page_number):
         "totals": totals,
         "charges": {key: round(value, 2) for key, value in charges.items()},
         "overtime": {"hours": overtime_hours, "value": overtime_value, "reflexValue": overtime_reflex_value, "reflexes": overtime_reflex_events, "events": overtime_events},
+        "medicalCertificates": {"hours": medical_certificate_hours, "value": medical_certificate_value, "events": medical_certificate_events},
         "absence": {"hours": absence_hours, "value": absence_value, "events": absence_events},
         "variables": {"value": round(sum(event["value"] for event in variable_events), 2), "events": variable_events},
         "unclassifiedEvents": unclassified_events,

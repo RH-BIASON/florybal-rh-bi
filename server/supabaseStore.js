@@ -104,6 +104,7 @@ function eventGroups(employee, event) {
   const groups = [];
   const inList = (items) => items?.some((item) => item.code === event.code && item.description === event.description && item.value === event.value);
   if (inList(employee.overtime?.events)) groups.push(["overtime", null]);
+  if (inList(employee.medicalCertificates?.events)) groups.push(["medical_certificates", null]);
   if (inList(employee.absence?.events)) groups.push(["absence", employee.absence.events.find((item) => item.code === event.code && item.description === event.description && item.value === event.value)?.kind || null]);
   if (inList(employee.variables?.events)) groups.push(["variables", employee.variables.events.find((item) => item.code === event.code && item.description === event.description && item.value === event.value)?.kind || null]);
   if (inList(employee.loans?.events)) groups.push(["loans", null]);
