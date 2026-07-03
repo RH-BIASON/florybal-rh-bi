@@ -408,7 +408,7 @@ function App() {
     });
   }, [dataset, selectedPeriods, selectedBranches, query]);
 
-  const analytics = useMemo(() => buildAnalytics(filtered), [filtered]);
+  const analytics = useMemo(() => buildAnalytics(filtered, dataset), [filtered, dataset]);
 
   if (authLoading) return <ShellState icon={RefreshCw} label="Carregando acesso..." />;
   if (!currentUser) return <AuthScreen mode={authMode} error={error} onSubmit={handleAuthSubmit} />;
@@ -464,7 +464,7 @@ function App() {
             <h1>Folhas de pagamento Florybal</h1>
           </div>
           <div className="actions">
-            <button className="secondary-action" onClick={() => exportWorkbook(filtered)} title="Exportar visão filtrada em Excel com abas">
+            <button className="secondary-action" onClick={() => exportWorkbook(filtered, dataset)} title="Exportar visão filtrada em Excel com abas">
               <Download size={18} />
               Excel
             </button>
@@ -590,7 +590,7 @@ function App() {
   );
 }
 
-function buildAnalytics(rows) {
+function buildAnalytics(rows, dataset = {}) {
   const personKey = (item) => `${item.branch?.code}-${item.contract}`;
   const monthEmployeeKey = (item) => `${item.period?.key}-${item.branch?.code}-${item.contract}`;
   const employees = uniqueCount(rows, personKey);
@@ -617,6 +617,7 @@ function buildAnalytics(rows) {
   Object.keys(chargeLabels).forEach((key) => {
     chargeTotals[key] = 0;
   });
+  const summaryChargeKeys = ["fgts", "inss_company"];
 
   for (const item of rows) {
     const month = item.period?.key;
@@ -860,11 +861,83 @@ function buildAnalytics(rows) {
     }
 
     Object.keys(chargeLabels).forEach((key) => {
+      if (summaryChargeKeys.includes(key)) return;
       const value = chargeValue(item, key);
       chargeTotals[key] += value;
       monthRow.charges[key] += value;
       branchRanking.charges += value;
     });
+  }
+
+  const periodSet = new Set(rows.map((item) => item.period?.key).filter(Boolean));
+  const branchSet = new Set(rows.map((item) => item.branch?.code).filter(Boolean));
+  const allBranchesSelected = dataset.branches?.length && branchSet.size === dataset.branches.length;
+  const summariesForCurrentFilter = (dataset.chargeSummaries || []).filter((item) => {
+    if (!periodSet.has(item.period?.key)) return false;
+    if (item.isGrandTotal) return false;
+    return item.branch?.code && branchSet.has(item.branch.code);
+  });
+  const grandSummaryByPeriod = new Map(
+    (dataset.chargeSummaries || [])
+      .filter((item) => item.isGrandTotal && periodSet.has(item.period?.key))
+      .map((item) => [item.period.key, item]),
+  );
+  const summaryRows = allBranchesSelected && grandSummaryByPeriod.size
+    ? Array.from(periodSet).map((period) => grandSummaryByPeriod.get(period)).filter(Boolean)
+    : summariesForCurrentFilter;
+
+  for (const summary of summaryRows) {
+    const month = summary.period?.key;
+    const monthRow = byMonthMap.get(month);
+    if (!monthRow) continue;
+    for (const key of summaryChargeKeys) {
+      const value = summary.charges?.[key] || 0;
+      chargeTotals[key] += value;
+      monthRow.charges[key] += value;
+    }
+  }
+
+  for (const summary of summariesForCurrentFilter) {
+    const branchCode = summary.branch?.code || "geral";
+    const branch = summary.branch?.label || "Todas as filiais";
+    const rankingKey = branchCode;
+    if (!branchRankingMap.has(rankingKey)) {
+      branchRankingMap.set(rankingKey, {
+        branch,
+        branchCode,
+        employees: new Set(),
+        admissions: 0,
+        resignations: 0,
+        overtime50Hours: 0,
+        overtime50Value: 0,
+        overtime100Hours: 0,
+        overtime100Value: 0,
+        overtimeReflectionHours: 0,
+        overtimeReflectionValue: 0,
+        overtimeTotalHours: 0,
+        overtimeTotalValue: 0,
+        absenceHours: 0,
+        absenceValue: 0,
+        medicalCertificateHours: 0,
+        medicalCertificateValue: 0,
+        medicalCertificateRecords: 0,
+        variableCommissions: 0,
+        variablePremiums: 0,
+        variableAdditionals: 0,
+        variableTotal: 0,
+        loans: 0,
+        vacations: 0,
+        vacationTerminations: 0,
+        charges: 0,
+        gross: 0,
+        net: 0,
+      });
+    }
+    const branchRanking = branchRankingMap.get(rankingKey);
+    for (const key of summaryChargeKeys) {
+      const value = summary.charges?.[key] || 0;
+      branchRanking.charges += value;
+    }
   }
 
   const byMonth = Array.from(byMonthMap.values())
@@ -1958,6 +2031,7 @@ function exportBackup(dataset, importHistory) {
     sources: dataset.sources,
     quality: dataset.quality,
     branches: dataset.branches,
+    chargeSummaries: dataset.chargeSummaries || [],
     employees: dataset.employees,
     importHistory,
   };
@@ -2001,9 +2075,9 @@ function branchRankingExportRows(rows) {
   );
 }
 
-async function exportWorkbook(rows) {
+async function exportWorkbook(rows, dataset) {
   const { default: ExcelJS } = await import("exceljs");
-  const analytics = buildAnalytics(rows);
+  const analytics = buildAnalytics(rows, dataset);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "BI Florybal Chocolates";
   workbook.created = new Date();

@@ -6,6 +6,10 @@ function sourcePeriodMap(dataset) {
   return map;
 }
 
+function periodOfSummary(item) {
+  return item?.period?.key;
+}
+
 function uniqBy(items, getKey) {
   const map = new Map();
   for (const item of items || []) {
@@ -114,6 +118,10 @@ export function mergePayrollDatasets(baseDataset, importedDataset) {
   const periods = sortPeriods(employees.map((employee) => employee.period?.key).filter(Boolean));
   const branches = sortBranches(employees.map((employee) => employee.branch).filter(Boolean));
   const sources = uniqBy(employees, (employee) => employee.sourceFile).map((employee) => employee.sourceFile);
+  const chargeSummaries = [
+    ...(baseDataset.chargeSummaries || []).filter((item) => !newPeriods.has(periodOfSummary(item))),
+    ...(importedDataset.chargeSummaries || []),
+  ];
 
   return {
     ...baseDataset,
@@ -122,6 +130,7 @@ export function mergePayrollDatasets(baseDataset, importedDataset) {
     sources,
     periods,
     branches,
+    chargeSummaries,
     employees,
     quality: rebuildQuality(baseDataset, importedDataset, employees, newPeriods),
   };
@@ -135,6 +144,7 @@ export function removePayrollPeriods(baseDataset, periodKeys) {
   const periods = sortPeriods(employees.map((employee) => employee.period?.key).filter(Boolean));
   const branches = sortBranches(employees.map((employee) => employee.branch).filter(Boolean));
   const sources = uniqBy(employees, (employee) => employee.sourceFile).map((employee) => employee.sourceFile);
+  const chargeSummaries = (baseDataset.chargeSummaries || []).filter((item) => !removedPeriods.has(periodOfSummary(item)));
 
   return {
     ...baseDataset,
@@ -142,6 +152,7 @@ export function removePayrollPeriods(baseDataset, periodKeys) {
     sources,
     periods,
     branches,
+    chargeSummaries,
     employees,
     quality: rebuildQuality(baseDataset, { quality: {} }, employees, removedPeriods),
   };

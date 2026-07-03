@@ -240,6 +240,40 @@ def sum_amounts_after_codes(lines, codes):
     return total
 
 
+def charge_values_after_codes(lines):
+    return {
+        "fgts": sum_amounts_after_codes(lines, FGTS_CODES),
+        "inss_company": sum_amounts_after_codes(lines, INSS_COMPANY_CODES),
+    }
+
+
+def extract_charge_summaries(path):
+    summaries = []
+    doc = fitz.open(path)
+    current_period = None
+    for page_index, page in enumerate(doc, 1):
+        lines = clean_lines(page.get_text())
+        period, branch = page_context(lines)
+        current_period = period or current_period
+        total_line = next((line for line in lines[:30] if line.startswith("Total do(a)")), None)
+        if not current_period or not total_line:
+            continue
+        is_grand_total = total_line.strip() == "Total do(a) FLORYBAL CHOCOLATES LTDA"
+        if not branch and not is_grand_total:
+            continue
+        summaries.append(
+            {
+                "sourceFile": path.name,
+                "sourcePage": page_index,
+                "period": current_period,
+                "branch": None if is_grand_total else branch,
+                "isGrandTotal": is_grand_total,
+                "charges": {key: round(value, 2) for key, value in charge_values_after_codes(lines).items()},
+            }
+        )
+    return summaries
+
+
 def extract_employee(chunk, period, branch, source_file, page_number):
     lines = chunk["lines"]
     text = "\n".join(lines)
@@ -414,11 +448,13 @@ def extract_pdf_grand_total(path):
 
 def build_dataset(paths):
     employees = []
+    charge_summaries = []
     source_totals = []
     diagnostics = []
     for path in paths:
         pdf_path = Path(path)
         employees.extend(parse_pdf(pdf_path, diagnostics))
+        charge_summaries.extend(extract_charge_summaries(pdf_path))
         total = extract_pdf_grand_total(pdf_path)
         if total:
             source_totals.append(total)
@@ -441,6 +477,7 @@ def build_dataset(paths):
         "sources": [Path(path).name for path in paths],
         "periods": periods,
         "branches": [json.loads(item) for item in branches],
+        "chargeSummaries": charge_summaries,
         "employees": employees,
         "quality": summarize_quality(employees, source_totals, diagnostics),
     }
