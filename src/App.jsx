@@ -593,6 +593,7 @@ function buildAnalytics(rows) {
 
   const byMonthMap = new Map();
   const byBranchMap = new Map();
+  const branchRankingMap = new Map();
   const overtimeTopMap = new Map();
   const absenceTopMap = new Map();
   const variableTopMap = new Map();
@@ -606,6 +607,7 @@ function buildAnalytics(rows) {
     const month = item.period?.key;
     const branch = item.branch?.label;
     const branchCode = item.branch?.code;
+    const rankingKey = branchCode || branch || "sem-filial";
     if (!byMonthMap.has(month)) {
       byMonthMap.set(month, {
         period: month,
@@ -669,6 +671,52 @@ function buildAnalytics(rows) {
     branchRow.employees.add(personKey(item));
     branchRow.alerts += item.validation.length || (item.absence?.hours || 0) >= 8 ? 1 : 0;
 
+    if (!branchRankingMap.has(rankingKey)) {
+      branchRankingMap.set(rankingKey, {
+        branch: branch || "Sem filial",
+        branchCode: branchCode || "-",
+        employees: new Set(),
+        admissions: 0,
+        resignations: 0,
+        overtime50Hours: 0,
+        overtime50Value: 0,
+        overtime100Hours: 0,
+        overtime100Value: 0,
+        overtimeReflectionValue: 0,
+        overtimeTotalHours: 0,
+        overtimeTotalValue: 0,
+        absenceHours: 0,
+        absenceValue: 0,
+        medicalCertificateHours: 0,
+        medicalCertificateValue: 0,
+        medicalCertificateRecords: 0,
+        variableCommissions: 0,
+        variablePremiums: 0,
+        variableAdditionals: 0,
+        variableTotal: 0,
+        loans: 0,
+        vacations: 0,
+        vacationTerminations: 0,
+        charges: 0,
+        gross: 0,
+        net: 0,
+      });
+    }
+    const branchRanking = branchRankingMap.get(rankingKey);
+    branchRanking.employees.add(personKey(item));
+    branchRanking.gross += item.totals.gross || 0;
+    branchRanking.net += item.totals.net || 0;
+    branchRanking.loans += loanValue(item);
+    branchRanking.vacations += vacationValue(item);
+    branchRanking.vacationTerminations += vacationTerminationValue(item);
+    branchRanking.absenceHours += item.absence?.hours || 0;
+    branchRanking.absenceValue += item.absence?.value || 0;
+    branchRanking.medicalCertificateHours += medicalCertificateHours(item);
+    branchRanking.medicalCertificateValue += medicalCertificateValue(item);
+    if (medicalCertificateEvents(item).length || medicalCertificateHours(item) || medicalCertificateValue(item)) branchRanking.medicalCertificateRecords += 1;
+    if (item.admissionDate?.slice(0, 7) === month) branchRanking.admissions += 1;
+    if (item.resignationDate?.slice(0, 7) === month) branchRanking.resignations += 1;
+
     if ((item.absence?.hours || 0) > 0) {
       const absenceKey = `${item.period?.key}-${item.branch?.code}-${item.contract}-${item.name}`;
       absenceTopMap.set(absenceKey, {
@@ -694,6 +742,11 @@ function buildAnalytics(rows) {
         if (variable === "Prêmios e bonificações") monthRow.variablePremiums += value;
         if (variable === "Adicionais") monthRow.variableAdditionals += value;
 
+        if (variable === "Comissões") branchRanking.variableCommissions += value;
+        if (variable === "Prêmios e bonificações") branchRanking.variablePremiums += value;
+        if (variable === "Adicionais") branchRanking.variableAdditionals += value;
+        branchRanking.variableTotal += value;
+
         const variableKey = `${item.branch?.code}-${item.contract}-${item.name}`;
         if (!variableTopMap.has(variableKey)) {
           variableTopMap.set(variableKey, {
@@ -716,6 +769,8 @@ function buildAnalytics(rows) {
       if (reflection) {
         const value = event.value || 0;
         monthRow.overtimeReflectionValue += value;
+        branchRanking.overtimeReflectionValue += value;
+        branchRanking.overtimeTotalValue += value;
         const topKey = `${item.branch?.code}-${item.contract}-${item.name}`;
         if (!overtimeTopMap.has(topKey)) {
           overtimeTopMap.set(topKey, {
@@ -743,10 +798,16 @@ function buildAnalytics(rows) {
       if (kind === "50") {
         monthRow.overtime50Hours += hours;
         monthRow.overtime50Value += value;
+        branchRanking.overtime50Hours += hours;
+        branchRanking.overtime50Value += value;
       } else {
         monthRow.overtime100Hours += hours;
         monthRow.overtime100Value += value;
+        branchRanking.overtime100Hours += hours;
+        branchRanking.overtime100Value += value;
       }
+      branchRanking.overtimeTotalHours += hours;
+      branchRanking.overtimeTotalValue += value;
       const topKey = `${item.branch?.code}-${item.contract}-${item.name}`;
       if (!overtimeTopMap.has(topKey)) {
         overtimeTopMap.set(topKey, {
@@ -780,6 +841,7 @@ function buildAnalytics(rows) {
       const value = item.charges[key] || 0;
       chargeTotals[key] += value;
       monthRow.charges[key] += value;
+      branchRanking.charges += value;
     });
   }
 
@@ -823,6 +885,32 @@ function buildAnalytics(rows) {
     }))
     .sort((a, b) => b.total - a.total)
     .slice(0, 10);
+  const branchRanking = Array.from(branchRankingMap.values())
+    .map((item) => ({
+      ...item,
+      employees: item.employees.size,
+      overtime50Hours: Number(item.overtime50Hours.toFixed(2)),
+      overtime50Value: Number(item.overtime50Value.toFixed(2)),
+      overtime100Hours: Number(item.overtime100Hours.toFixed(2)),
+      overtime100Value: Number(item.overtime100Value.toFixed(2)),
+      overtimeReflectionValue: Number(item.overtimeReflectionValue.toFixed(2)),
+      overtimeTotalHours: Number(item.overtimeTotalHours.toFixed(2)),
+      overtimeTotalValue: Number(item.overtimeTotalValue.toFixed(2)),
+      absenceHours: Number(item.absenceHours.toFixed(2)),
+      absenceValue: Number(item.absenceValue.toFixed(2)),
+      medicalCertificateHours: Number(item.medicalCertificateHours.toFixed(2)),
+      medicalCertificateValue: Number(item.medicalCertificateValue.toFixed(2)),
+      variableCommissions: Number(item.variableCommissions.toFixed(2)),
+      variablePremiums: Number(item.variablePremiums.toFixed(2)),
+      variableAdditionals: Number(item.variableAdditionals.toFixed(2)),
+      variableTotal: Number(item.variableTotal.toFixed(2)),
+      loans: Number(item.loans.toFixed(2)),
+      vacations: Number(item.vacations.toFixed(2)),
+      vacationTerminations: Number(item.vacationTerminations.toFixed(2)),
+      charges: Number(item.charges.toFixed(2)),
+      gross: Number(item.gross.toFixed(2)),
+      net: Number(item.net.toFixed(2)),
+    }));
 
   const overtimeTotals = byMonth.reduce(
     (total, item) => ({
@@ -835,7 +923,7 @@ function buildAnalytics(rows) {
     { hours50: 0, value50: 0, hours100: 0, value100: 0, reflectionValue: 0 },
   );
 
-  return { rows, records, employees, payroll, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop };
+  return { rows, records, employees, payroll, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop };
 }
 
 function toggleSet(value, setter) {
@@ -945,6 +1033,7 @@ function Overview({ analytics }) {
           rows={analytics.byMonth.map((item) => [item.label, item.employees, item.admissions, item.resignations, currency(item.gross), currency(item.net), currency(item.loans)])}
         />
       </Panel>
+      <BranchRankingPanel analytics={analytics} />
       <Panel title="Todas as filiais no filtro" icon={Landmark} wide>
         <DataTable
           columns={["Filial", "Colaboradores", "Bruto", "Líquido", "Admissões", "Rescisões", "Consignados", "Férias", "Férias rescisórias"]}
@@ -962,6 +1051,71 @@ function Overview({ analytics }) {
         />
       </Panel>
     </section>
+  );
+}
+
+function BranchRankingPanel({ analytics }) {
+  const rankings = [
+    {
+      title: "Horas extras",
+      getValue: (item) => item.overtimeTotalHours,
+      formatValue: formatHours,
+      detail: (item) => `${formatHours(item.overtime50Hours)} 50% | ${formatHours(item.overtime100Hours)} 100% | ${currency(item.overtimeTotalValue)}`,
+    },
+    { title: "Admissões", getValue: (item) => item.admissions, formatValue: (value) => value.toLocaleString("pt-BR"), detail: (item) => `${item.employees} colaboradores no filtro` },
+    { title: "Rescisões", getValue: (item) => item.resignations, formatValue: (value) => value.toLocaleString("pt-BR"), detail: (item) => `${item.employees} colaboradores no filtro` },
+    {
+      title: "Atestados",
+      getValue: (item) => item.medicalCertificateHours,
+      formatValue: formatHours,
+      detail: (item) => `${item.medicalCertificateRecords} ocorrências | ${currency(item.medicalCertificateValue)}`,
+    },
+    { title: "Variáveis", getValue: (item) => item.variableTotal, formatValue: compactCurrency, detail: (item) => `Comissões ${currency(item.variableCommissions)} | Prêmios ${currency(item.variablePremiums)} | Adicionais ${currency(item.variableAdditionals)}` },
+    { title: "Consignados", getValue: (item) => item.loans, formatValue: compactCurrency, detail: (item) => currency(item.loans) },
+    { title: "Férias", getValue: (item) => item.vacations, formatValue: compactCurrency, detail: (item) => currency(item.vacations) },
+    { title: "Férias Rec", getValue: (item) => item.vacationTerminations, formatValue: compactCurrency, detail: (item) => currency(item.vacationTerminations) },
+    { title: "Faltas/atrasos", getValue: (item) => item.absenceHours, formatValue: formatHours, detail: (item) => currency(item.absenceValue) },
+    { title: "Encargos", getValue: (item) => item.charges, formatValue: compactCurrency, detail: (item) => currency(item.charges) },
+  ];
+
+  return (
+    <Panel title="Top 5 filiais no filtro" icon={Landmark} wide>
+      <div className="branch-ranking-grid">
+        {rankings.map((ranking) => (
+          <BranchRankingCard key={ranking.title} ranking={ranking} rows={analytics.branchRanking} />
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function BranchRankingCard({ ranking, rows }) {
+  const topRows = rows
+    .map((item) => ({ ...item, rankingValue: ranking.getValue(item) || 0 }))
+    .filter((item) => item.rankingValue > 0)
+    .sort((a, b) => b.rankingValue - a.rankingValue)
+    .slice(0, 5);
+
+  return (
+    <article className="branch-ranking-card">
+      <h3>{ranking.title}</h3>
+      {topRows.length ? (
+        <ol>
+          {topRows.map((item) => (
+            <li key={`${ranking.title}-${item.branchCode}`}>
+              <span>{item.branchCode}</span>
+              <div>
+                <strong>{ranking.formatValue(item.rankingValue)}</strong>
+                <small>{item.branch}</small>
+                <em>{ranking.detail(item)}</em>
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <div className="empty-mini">Sem dados no filtro</div>
+      )}
+    </article>
   );
 }
 
@@ -1743,6 +1897,37 @@ function exportBackup(dataset, importHistory) {
   URL.revokeObjectURL(url);
 }
 
+function branchRankingExportRows(rows) {
+  const rankings = [
+    { label: "Horas extras", valueKey: "overtimeTotalHours", moneyKey: "overtimeTotalValue", detail: (item) => `HE 50 ${formatHours(item.overtime50Hours)} | HE 100 ${formatHours(item.overtime100Hours)} | Reflexos ${currency(item.overtimeReflectionValue)}` },
+    { label: "Admissoes", valueKey: "admissions", detail: (item) => `${item.employees} colaboradores no filtro` },
+    { label: "Rescisoes", valueKey: "resignations", detail: (item) => `${item.employees} colaboradores no filtro` },
+    { label: "Atestados", valueKey: "medicalCertificateHours", moneyKey: "medicalCertificateValue", detail: (item) => `${item.medicalCertificateRecords} ocorrencias` },
+    { label: "Variaveis", valueKey: "variableTotal", moneyKey: "variableTotal", detail: (item) => `Comissoes ${currency(item.variableCommissions)} | Premios ${currency(item.variablePremiums)} | Adicionais ${currency(item.variableAdditionals)}` },
+    { label: "Consignados", valueKey: "loans", moneyKey: "loans", detail: () => "" },
+    { label: "Ferias", valueKey: "vacations", moneyKey: "vacations", detail: () => "" },
+    { label: "Ferias Rec", valueKey: "vacationTerminations", moneyKey: "vacationTerminations", detail: () => "" },
+    { label: "Faltas e atrasos", valueKey: "absenceHours", moneyKey: "absenceValue", detail: () => "" },
+    { label: "Encargos", valueKey: "charges", moneyKey: "charges", detail: () => "" },
+  ];
+
+  return rankings.flatMap((ranking) =>
+    rows
+      .filter((item) => (item[ranking.valueKey] || 0) > 0)
+      .sort((a, b) => (b[ranking.valueKey] || 0) - (a[ranking.valueKey] || 0))
+      .slice(0, 5)
+      .map((item, index) => ({
+        ranking: ranking.label,
+        position: index + 1,
+        branch: item.branch,
+        branchCode: item.branchCode,
+        mainValue: item[ranking.valueKey] || 0,
+        moneyValue: ranking.moneyKey ? item[ranking.moneyKey] || 0 : "",
+        detail: ranking.detail(item),
+      })),
+  );
+}
+
 async function exportWorkbook(rows) {
   const { default: ExcelJS } = await import("exceljs");
   const analytics = buildAnalytics(rows);
@@ -1823,6 +2008,22 @@ async function exportWorkbook(rows) {
       medicalCertificateValue: item.medicalCertificateValue,
     })),
     { currencyKeys: new Set(["gross", "discounts", "net", "overtime50Value", "overtime100Value", "overtimeReflectionValue", "absenceValue", "loans", "vacations", "vacationTerminations", "medicalCertificateValue"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Ranking Filiais",
+    [
+      { header: "Ranking", key: "ranking", width: 22 },
+      { header: "Posicao", key: "position", width: 10 },
+      { header: "Filial", key: "branch", width: 30 },
+      { header: "Codigo", key: "branchCode", width: 10 },
+      { header: "Valor principal", key: "mainValue", width: 16 },
+      { header: "Valor R$", key: "moneyValue", width: 16 },
+      { header: "Detalhe", key: "detail", width: 48 },
+    ],
+    branchRankingExportRows(analytics.branchRanking),
+    { currencyKeys: new Set(["moneyValue"]) },
   );
 
   addSheet(workbook, "Colaboradores", baseColumns(), rows.map(baseEmployeeRow), {
