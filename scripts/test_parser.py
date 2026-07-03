@@ -87,15 +87,15 @@ class PayrollParserTests(unittest.TestCase):
     def test_official_charge_summaries_are_extracted(self):
         grand_totals = [item for item in self.dataset["chargeSummaries"] if item["isGrandTotal"]]
         self.assertEqual(len(grand_totals), 5)
-        self.assertAlmostEqual(sum(item["charges"]["fgts"] for item in grand_totals), 100_912.34, places=2)
-        self.assertAlmostEqual(sum(item["charges"]["inss_company"] for item in grand_totals), 2_210_189.92, places=2)
+        self.assertAlmostEqual(sum(item["charges"]["fgts"] for item in grand_totals), 518_030.88, places=2)
+        self.assertAlmostEqual(sum(item["charges"]["inss_company"] for item in grand_totals), 1_180_688.69, places=2)
 
     def test_may_charge_summary_uses_pdf_grand_total(self):
         dataset = build_dataset([MAY_PDF])
         grand_total = next(item for item in dataset["chargeSummaries"] if item["isGrandTotal"])
         self.assertEqual(grand_total["period"]["key"], "2026-05")
-        self.assertAlmostEqual(grand_total["charges"]["fgts"], 36_523.68, places=2)
-        self.assertAlmostEqual(grand_total["charges"]["inss_company"], 501_309.05, places=2)
+        self.assertAlmostEqual(grand_total["charges"]["fgts"], 126_049.31, places=2)
+        self.assertAlmostEqual(grand_total["charges"]["inss_company"], 266_479.21, places=2)
 
 
 if __name__ == "__main__":

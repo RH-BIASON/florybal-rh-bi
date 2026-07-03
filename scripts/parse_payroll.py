@@ -17,6 +17,8 @@ BRANCH_RE = re.compile(r"^(\d{3})\s+-\s+(.+)$")
 EVENT_RULES = json.loads(RULES_PATH.read_text(encoding="utf-8"))
 FGTS_CODES = {"00474", "00475", "00476", "00478", "00479"}
 INSS_COMPANY_CODES = {"00850", "00853", "00856"}
+OFFICIAL_FGTS_CODES = {"00473", "00474", "00475", "00476", "00478"}
+OFFICIAL_INSS_COMPANY_CODES = {"00849", "00852", "00855"}
 
 
 def br_money(value):
@@ -242,8 +244,8 @@ def sum_amounts_after_codes(lines, codes):
 
 def charge_values_after_codes(lines):
     return {
-        "fgts": sum_amounts_after_codes(lines, FGTS_CODES),
-        "inss_company": sum_amounts_after_codes(lines, INSS_COMPANY_CODES),
+        "fgts": sum_amounts_after_codes(lines, OFFICIAL_FGTS_CODES),
+        "inss_company": sum_amounts_after_codes(lines, OFFICIAL_INSS_COMPANY_CODES),
     }
 
 
