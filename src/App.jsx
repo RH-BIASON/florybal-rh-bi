@@ -591,6 +591,7 @@ function App() {
 }
 
 function buildAnalytics(rows, dataset = {}) {
+  dataset = dataset || {};
   const personKey = (item) => `${item.branch?.code}-${item.contract}`;
   const monthEmployeeKey = (item) => `${item.period?.key}-${item.branch?.code}-${item.contract}`;
   const employees = uniqueCount(rows, personKey);
