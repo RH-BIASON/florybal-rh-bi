@@ -46,6 +46,8 @@ const chartColors = ["#f59e0b", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64
 const tokenKey = "florybal_bi_token";
 const vacationCodes = new Set(["00061", "00062", "00063", "00065", "00066", "00067", "00068", "00069", "00081", "00083", "00085", "00086", "00165", "00166", "00167", "00197"]);
 const vacationTerminationCodes = new Set(["00070", "00071", "00072", "00073", "00075", "00076", "00077", "00078", "00079", "00080", "00176", "00177", "00178", "00179", "17001", "17002", "17006", "17007", "17008", "17099"]);
+const fgtsCodes = new Set(["00474", "00475", "00476", "00478", "00479"]);
+const inssCompanyCodes = new Set(["00850", "00853", "00856"]);
 
 function currency(value) {
   return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -128,6 +130,19 @@ function medicalCertificateValue(item) {
 
 function variablesValue(item) {
   return sum(item.events || [], (event) => (variableKind(event) ? event.value : 0));
+}
+
+function chargeValue(item, key) {
+  const events = item.events || [];
+  if (key === "fgts") {
+    const matching = events.filter((event) => fgtsCodes.has(event.code));
+    return matching.length ? sum(matching, (event) => event.value) : item.charges?.fgts || 0;
+  }
+  if (key === "inss_company") {
+    const matching = events.filter((event) => inssCompanyCodes.has(event.code));
+    return matching.length ? sum(matching, (event) => event.value) : item.charges?.inss_company || 0;
+  }
+  return item.charges?.[key] || 0;
 }
 
 function validLoanEvent(event) {
@@ -845,7 +860,7 @@ function buildAnalytics(rows) {
     }
 
     Object.keys(chargeLabels).forEach((key) => {
-      const value = item.charges[key] || 0;
+      const value = chargeValue(item, key);
       chargeTotals[key] += value;
       monthRow.charges[key] += value;
       branchRanking.charges += value;

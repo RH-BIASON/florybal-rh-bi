@@ -78,6 +78,11 @@ class PayrollParserTests(unittest.TestCase):
         self.assertEqual(medical_certificate_kind(certificate), "Atestado")
         self.assertTrue(is_classified_event(old_reflex))
 
+    def test_fgts_and_inss_company_use_exact_codes(self):
+        employees = self.dataset["employees"]
+        self.assertAlmostEqual(sum(item["charges"]["fgts"] for item in employees), 1_140_195.00, places=2)
+        self.assertAlmostEqual(sum(item["charges"]["inss_company"] for item in employees), 158_086.22, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()

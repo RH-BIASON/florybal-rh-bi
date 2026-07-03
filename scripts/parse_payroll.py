@@ -15,6 +15,8 @@ EVENT_RE = re.compile(r"^(\d{5})\s+(.+?)\s*$")
 PERIOD_RE = re.compile(r"Folhas:\s*(\d{2}/\d{2}/\d{4})\s+a\s+(\d{2}/\d{2}/\d{4})")
 BRANCH_RE = re.compile(r"^(\d{3})\s+-\s+(.+)$")
 EVENT_RULES = json.loads(RULES_PATH.read_text(encoding="utf-8"))
+FGTS_CODES = {"00474", "00475", "00476", "00478", "00479"}
+INSS_COMPANY_CODES = {"00850", "00853", "00856"}
 
 
 def br_money(value):
@@ -225,6 +227,19 @@ def sum_amounts_after_labels(text, labels):
     return total
 
 
+def sum_amounts_after_codes(lines, codes):
+    total = 0.0
+    code_set = set(codes)
+    for index, line in enumerate(lines):
+        if line.strip() not in code_set:
+            continue
+        for next_line in lines[index + 1 : index + 5]:
+            if MONEY_RE.match(next_line):
+                total += br_money(next_line)
+                break
+    return total
+
+
 def extract_employee(chunk, period, branch, source_file, page_number):
     lines = chunk["lines"]
     text = "\n".join(lines)
@@ -253,17 +268,8 @@ def extract_employee(chunk, period, branch, source_file, page_number):
 
     charges = {
         "inss_employee": sum(event["value"] for event in events if "INSS sobre" in event["description"]),
-        "inss_company": sum_amounts_after_labels(text, ["INSS Empr.", "INSS Parte Empresa", "INSS Parte Empreg."]),
-        "fgts": sum_amounts_after_labels(
-            text,
-            [
-                "FGTS sobre Salários",
-                "FGTS sobre as Férias",
-                "FGTS sobre o 13º Salário",
-                "FGTS s/Rescisão",
-                "FGTS s/Val. Pagos",
-            ],
-        ),
+        "inss_company": sum_amounts_after_codes(lines, INSS_COMPANY_CODES),
+        "fgts": sum_amounts_after_codes(lines, FGTS_CODES),
         "rat_fap": sum_amounts_after_labels(text, ["RATxFAP"]),
         "third_parties": sum_amounts_after_labels(text, ["Terceiros Emp.", "Terc. Parte Empresa"]),
         "gps_total": sum_amounts_after_labels(text, ["TOTAL GPS"]),
