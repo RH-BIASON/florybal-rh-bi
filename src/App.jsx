@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Banknote,
   BriefcaseBusiness,
+  BookOpenCheck,
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
@@ -456,6 +457,7 @@ function App() {
             ["variables", BriefcaseBusiness, "Variáveis e consignados"],
             ["charges", Landmark, "Encargos"],
             ["benefits", CalendarDays, "Férias"],
+            ["rubrics", BookOpenCheck, "Rubricas utilizadas"],
             ["audit", ClipboardCheck, "Auditoria"],
             ...(isAdmin ? [["access", UserPlus, "Acessos"]] : []),
           ].map(([key, Icon, label]) => (
@@ -599,6 +601,7 @@ function App() {
         {view === "variables" && <Variables analytics={analytics} />}
         {view === "charges" && <Charges analytics={analytics} />}
         {view === "benefits" && <Benefits analytics={analytics} />}
+        {view === "rubrics" && <RubricsCatalog dataset={dataset} rows={filtered} />}
         {view === "audit" && <Audit dataset={dataset} analytics={analytics} importHistory={importHistory} onRemovePeriod={removePeriod} removingPeriod={removingPeriod} isAdmin={isAdmin} />}
         {view === "access" && isAdmin && <AccessPanel apiRequest={apiRequest} currentUser={currentUser} />}
       </section>
@@ -1666,6 +1669,223 @@ function Benefits({ analytics }) {
           empty="Sem férias rescisórias no filtro."
         />
       </Panel>
+    </section>
+  );
+}
+
+const rubricFallbackDescriptions = {
+  "00473": "FGTS sobre Salários",
+  "00474": "FGTS sobre as Férias",
+  "00475": "FGTS sobre o 13º Salário",
+  "00476": "FGTS sobre valores pagos na rescisão",
+  "00478": "FGTS Indenizado (40%)",
+  "00849": "INSS Empresa sobre salário e férias",
+  "00852": "INSS Empresa sobre o 13º salário",
+  "00855": "INSS Empresa sobre pró-labore",
+};
+
+function eventIndex(rows) {
+  const index = new Map();
+  for (const employee of rows || []) {
+    for (const event of employee.events || []) {
+      if (!index.has(event.code)) index.set(event.code, { descriptions: new Set(), count: 0, value: 0 });
+      const item = index.get(event.code);
+      if (event.description) item.descriptions.add(event.description);
+      item.count += 1;
+      item.value += Number(event.value || 0);
+    }
+  }
+  return index;
+}
+
+function rubricCatalogSections(allRows) {
+  const events = allRows.flatMap((item) => item.events || []);
+  const codesWhere = (predicate) => [...new Set(events.filter(predicate).map((event) => event.code))].sort();
+  const loanCodes = codesWhere(validLoanEvent);
+  const inssEmployeeCodes = codesWhere((event) => {
+    const description = event.description.toLowerCase();
+    return description.includes("inss sobre") || description.includes("inss s/");
+  });
+  const irrfCodes = codesWhere((event) => {
+    const description = event.description.toLowerCase();
+    return description.includes("i.r.f") || description.includes("irrf") || description.includes("irf sobre");
+  });
+
+  return [
+    {
+      title: "Visão geral",
+      icon: TrendingUp,
+      summary: "Indicadores formados pelos totais oficiais de cada demonstrativo.",
+      items: [
+        { title: "Folha bruta", type: "source", rule: "Linha Total dos Vencimentos de cada colaborador." },
+        { title: "Descontos", type: "source", rule: "Linha Total dos Descontos de cada colaborador." },
+        { title: "Líquido", type: "source", rule: "Linha Líquido de cada colaborador; bruto menos descontos." },
+        { title: "Colaboradores", type: "source", rule: "Contratos únicos por competência e filial selecionadas." },
+      ],
+    },
+    {
+      title: "Admissões e rescisões",
+      icon: Users,
+      summary: "Movimentações identificadas no cabeçalho individual do colaborador.",
+      items: [
+        { title: "Admissões", type: "source", rule: "Campo Admissão, considerado quando a data pertence à competência da folha." },
+        { title: "Rescisões", type: "source", rule: "Campo Rescisão, considerado quando a data pertence à competência da folha." },
+        { title: "Cargo", type: "source", rule: "Campo Cargo do cadastro exibido no demonstrativo individual." },
+      ],
+    },
+    {
+      title: "Horas extras",
+      icon: Clock3,
+      summary: "Horas e valores entram somente pelas rubricas definidas abaixo.",
+      items: [
+        { title: "Horas extras 50%", type: "included", codes: ["00025", "00096", "00107"], rule: "Soma quantidade em horas e valor." },
+        { title: "Horas extras 100%", type: "included", codes: ["00026", "00097"], rule: "Soma quantidade em horas e valor." },
+        { title: "Reflexos de horas extras", type: "included", codes: ["00030"], rule: "Exibido separadamente das horas extras." },
+      ],
+    },
+    {
+      title: "Faltas e atrasos",
+      icon: AlertTriangle,
+      summary: "Os alertas mensais consideram as rubricas de faltas e atrasos efetivos.",
+      items: [
+        { title: "Faltas não justificadas", type: "included", codes: ["00201"], rule: "Soma horas e valor dentro de cada competência." },
+        { title: "Meias faltas ou atrasos", type: "included", codes: ["00202"], rule: "Soma horas e valor dentro de cada competência." },
+      ],
+    },
+    {
+      title: "Atestados",
+      icon: ClipboardCheck,
+      summary: "Ocorrências médicas controladas por uma rubrica exclusiva.",
+      items: [
+        { title: "Atestados médicos", type: "included", codes: ["00007"], rule: "Soma quantidade em horas, valor e ocorrências por colaborador." },
+      ],
+    },
+    {
+      title: "Variáveis e consignados",
+      icon: BriefcaseBusiness,
+      summary: "Variáveis usam códigos exatos; consignados são identificados pela descrição do desconto efetivo.",
+      items: [
+        { title: "Comissões", type: "included", codes: ["00028", "00029"], rule: "Comissões e repouso sobre comissões." },
+        { title: "Prêmios e bonificações", type: "included", codes: ["00035", "00088", "00089"], rule: "Prêmio de produtividade e bonificações de domingo/feriado." },
+        { title: "Adicionais", type: "included", codes: ["00020", "00021", "00022", "00023", "00024", "00037", "00050"], rule: "Somente os adicionais autorizados nesta lista." },
+        { title: "Empréstimos consignados", type: "rule", codes: loanCodes, rule: "Rubricas efetivas de empréstimo cuja descrição identifica consignado." },
+      ],
+    },
+    {
+      title: "Encargos",
+      icon: Landmark,
+      summary: "FGTS e INSS empresa vêm dos resumos oficiais; os demais seguem as linhas identificadas na folha.",
+      items: [
+        { title: "FGTS", type: "included", codes: ["00473", "00474", "00475", "00476", "00478"], rule: "Soma oficial do resumo da competência." },
+        { title: "INSS empresa", type: "included", codes: ["00849", "00852", "00855"], rule: "Soma oficial do resumo da competência." },
+        { title: "INSS colaborador", type: "rule", codes: inssEmployeeCodes, rule: "Eventos cuja descrição identifica INSS sobre folha, férias ou 13º." },
+        { title: "RAT x FAP", type: "rule", codes: ["00850", "00853"], rule: "Linhas identificadas como RATxFAP no demonstrativo." },
+        { title: "Terceiros", type: "rule", codes: ["00851", "00854"], rule: "Linhas Terceiros Empresa / Terceiros Parte Empresa." },
+        { title: "Total GPS", type: "rule", codes: ["00852", "00855", "00856"], rule: "Linhas identificadas como TOTAL GPS no detalhe do colaborador." },
+        { title: "IRRF", type: "rule", codes: irrfCodes, rule: "Eventos cuja descrição identifica I.R.F., IRF ou IRRF." },
+      ],
+    },
+    {
+      title: "Férias",
+      icon: CalendarDays,
+      summary: "Férias normais e rescisórias permanecem separadas para evitar mistura de custos.",
+      items: [
+        { title: "Férias", type: "included", codes: [...vacationCodes], rule: "Custo de férias normais, abonos, médias e respectivos adicionais." },
+        { title: "Férias rescisórias", type: "included", codes: [...vacationTerminationCodes], rule: "Verbas de férias indenizadas, proporcionais e aviso prévio indenizado." },
+      ],
+    },
+  ];
+}
+
+function RubricsCatalog({ dataset, rows }) {
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const allRows = dataset?.employees || [];
+  const allIndex = useMemo(() => eventIndex(allRows), [allRows]);
+  const filteredIndex = useMemo(() => eventIndex(rows), [rows]);
+  const sections = useMemo(() => rubricCatalogSections(allRows), [allRows]);
+  const normalizedQuery = catalogQuery.trim().toLocaleLowerCase("pt-BR");
+  const visibleSections = sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => {
+        if (!normalizedQuery) return true;
+        const descriptions = (item.codes || []).flatMap((code) => [...(allIndex.get(code)?.descriptions || []), rubricFallbackDescriptions[code] || ""]);
+        return [section.title, item.title, item.rule, ...(item.codes || []), ...descriptions]
+          .join(" ")
+          .toLocaleLowerCase("pt-BR")
+          .includes(normalizedQuery);
+      }),
+    }))
+    .filter((section) => section.items.length);
+  const uniqueCodes = new Set(sections.flatMap((section) => section.items.flatMap((item) => item.codes || []))).size;
+
+  return (
+    <section className="rubric-catalog">
+      <header className="rubric-intro">
+        <div>
+          <span className="eyebrow">Memória de cálculo</span>
+          <h2>O que entra em cada indicador</h2>
+          <p>Consulta das regras usadas pelo BI. Esta área não altera os cálculos.</p>
+        </div>
+        <div className="rubric-summary">
+          <span><strong>{uniqueCodes}</strong> códigos mapeados</span>
+          <span><strong>{sections.reduce((total, section) => total + section.items.length, 0)}</strong> regras explicadas</span>
+        </div>
+        <label className="rubric-search">
+          <Search size={17} />
+          <input value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="Buscar indicador, código ou descrição" />
+        </label>
+      </header>
+
+      <div className="rubric-legend" aria-label="Legenda">
+        <span className="rubric-status included">Entra no cálculo</span>
+        <span className="rubric-status rule">Regra de identificação</span>
+        <span className="rubric-status source">Campo da folha</span>
+      </div>
+
+      {visibleSections.length ? visibleSections.map((section) => {
+        const Icon = section.icon;
+        return (
+          <article className="rubric-section" key={section.title}>
+            <header>
+              <Icon size={19} />
+              <div><h3>{section.title}</h3><p>{section.summary}</p></div>
+              <span>{section.items.length} {section.items.length === 1 ? "regra" : "regras"}</span>
+            </header>
+            <div className="rubric-rule-list">
+              {section.items.map((item) => {
+                const currentCount = sum(item.codes || [], (code) => filteredIndex.get(code)?.count || 0);
+                return (
+                  <div className="rubric-rule" key={`${section.title}-${item.title}`}>
+                    <div className="rubric-rule-heading">
+                      <strong>{item.title}</strong>
+                      <span className={`rubric-status ${item.type}`}>{item.type === "included" ? "Entra" : item.type === "source" ? "Campo da folha" : "Por regra"}</span>
+                    </div>
+                    <p>{item.rule}</p>
+                    {item.codes?.length ? (
+                      <div className="rubric-codes">
+                        {item.codes.map((code) => {
+                          const metadata = allIndex.get(code);
+                          const description = [...(metadata?.descriptions || [])][0] || rubricFallbackDescriptions[code] || "Descrição não encontrada nas competências atuais";
+                          const count = filteredIndex.get(code)?.count || 0;
+                          return (
+                            <span className="rubric-code" key={code} title={`${count.toLocaleString("pt-BR")} ocorrências no filtro atual`}>
+                              <b>{code}</b>
+                              <em>{description}</em>
+                              {count > 0 && <small>{count.toLocaleString("pt-BR")}x</small>}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    {item.codes?.length ? <small className="rubric-occurrences">{currentCount.toLocaleString("pt-BR")} ocorrências no período e nas filiais selecionadas</small> : null}
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+        );
+      }) : <div className="empty-state">Nenhuma regra encontrada para “{catalogQuery}”.</div>}
     </section>
   );
 }
