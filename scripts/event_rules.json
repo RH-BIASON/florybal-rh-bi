@@ -50,15 +50,6 @@
       "descriptionIncludes": [
         "atrasos"
       ]
-    },
-    {
-      "kind": "Repouso descontado",
-      "codes": [
-        "00203"
-      ],
-      "descriptionIncludes": [
-        "repousos descontados"
-      ]
     }
   ],
   "variables": [
@@ -94,7 +85,8 @@
     {
       "kind": "Consignado",
       "excludeCodes": [
-        "49992"
+        "49992",
+        "61114"
       ],
       "excludeDescriptionIncludesAny": [
         "estorno"
@@ -128,6 +120,13 @@
     }
   ],
   "known_other": [
+    {
+      "kind": "Provisoes fora do BI",
+      "codes": [
+        "00203",
+        "61114"
+      ]
+    },
     {
       "kind": "Salário e pró-labore",
       "descriptionIncludesAny": [

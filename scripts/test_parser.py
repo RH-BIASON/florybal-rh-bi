@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from parse_payroll import build_dataset, is_classified_event, loan_kind, medical_certificate_kind, overtime_reflex_kind, vacation_kind, vacation_termination_kind
+from parse_payroll import absence_kind, build_dataset, is_classified_event, loan_kind, medical_certificate_kind, overtime_reflex_kind, vacation_kind, vacation_termination_kind
 
 PDFS = [
     ROOT / "FOPAG Florybal 122025.pdf",
@@ -51,6 +51,26 @@ class PayrollParserTests(unittest.TestCase):
             "value": 518,
         }
         self.assertIsNone(loan_kind(event))
+        self.assertTrue(is_classified_event(event))
+
+    def test_vacation_econsignado_provision_is_not_loan(self):
+        event = {
+            "code": "61114",
+            "description": "Provisao eConsignado Ferias",
+            "quantity": None,
+            "value": 2730.80,
+        }
+        self.assertIsNone(loan_kind(event))
+        self.assertTrue(is_classified_event(event))
+
+    def test_discounted_rest_is_not_absence(self):
+        event = {
+            "code": "00203",
+            "description": "Repousos Descontados",
+            "quantity": 164.64,
+            "value": 1607.99,
+        }
+        self.assertIsNone(absence_kind(event))
         self.assertTrue(is_classified_event(event))
 
     def test_vacation_and_termination_vacation_are_separated(self):

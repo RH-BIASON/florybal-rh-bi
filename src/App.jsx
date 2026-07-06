@@ -147,7 +147,7 @@ function chargeValue(item, key) {
 
 function validLoanEvent(event) {
   const description = event.description.toLowerCase();
-  return description.includes("consign") && event.code !== "49992" && !description.includes("estorno");
+  return description.includes("consign") && !["49992", "61114"].includes(event.code) && !description.includes("estorno");
 }
 
 function loanValue(item) {
@@ -172,8 +172,24 @@ function absenceKind(event) {
   const description = event.description.toLowerCase();
   if (event.code === "00201" || description.includes("faltas não justificadas") || description.includes("faltas nao justificadas")) return "Faltas";
   if (event.code === "00202" || description.includes("faltas ou atrasos") || description.includes("atrasos")) return "Atrasos";
-  if (event.code === "00203" || description.includes("repousos descontados")) return "Repouso descontado";
   return null;
+}
+
+function absenceEvents(item) {
+  const events = item.events || item.absence?.events || [];
+  return events.filter((event) => ["00201", "00202"].includes(event.code));
+}
+
+function absenceHours(item) {
+  const events = absenceEvents(item);
+  if (events.length) return sum(events, (event) => event.quantity);
+  return item.absence?.hours || 0;
+}
+
+function absenceValue(item) {
+  const events = absenceEvents(item);
+  if (events.length) return sum(events, (event) => event.value);
+  return item.absence?.value || 0;
 }
 
 function variableKind(event) {
@@ -605,7 +621,7 @@ function buildAnalytics(rows, dataset = {}) {
   const vacations = rows.filter((item) => vacationValue(item) > 0 || item.vacation.start);
   const vacationTerminations = rows.filter((item) => vacationTerminationValue(item) > 0);
   const medicalCertificates = rows.filter((item) => medicalCertificateEvents(item).length > 0 || medicalCertificateHours(item) > 0 || medicalCertificateValue(item) > 0);
-  const alerts = rows.filter((item) => item.validation.length || item.overtime.hours > 40 || (item.absence?.hours || 0) >= 8);
+  const alerts = rows.filter((item) => item.validation.length || item.overtime.hours > 40 || absenceHours(item) >= 8);
 
   const byMonthMap = new Map();
   const byBranchMap = new Map();
@@ -667,10 +683,10 @@ function buildAnalytics(rows, dataset = {}) {
     monthRow.medicalCertificateHours += medicalCertificateHours(item);
     monthRow.medicalCertificateValue += medicalCertificateValue(item);
     if (medicalCertificateEvents(item).length || medicalCertificateHours(item) || medicalCertificateValue(item)) monthRow.medicalCertificateRecords += 1;
-    monthRow.absenceHours += item.absence?.hours || 0;
-    monthRow.absenceValue += item.absence?.value || 0;
-    if ((item.absence?.hours || 0) >= 24) monthRow.absenceRed += 1;
-    else if ((item.absence?.hours || 0) >= 8) monthRow.absenceYellow += 1;
+    monthRow.absenceHours += absenceHours(item);
+    monthRow.absenceValue += absenceValue(item);
+    if (absenceHours(item) >= 24) monthRow.absenceRed += 1;
+    else if (absenceHours(item) >= 8) monthRow.absenceYellow += 1;
     monthRow.employees.add(monthEmployeeKey(item));
     if (item.admissionDate?.slice(0, 7) === month) monthRow.admissions += 1;
     if (item.resignationDate?.slice(0, 7) === month) monthRow.resignations += 1;
@@ -687,7 +703,7 @@ function buildAnalytics(rows, dataset = {}) {
     if (item.admissionDate?.slice(0, 7) === month) branchRow.admissions += 1;
     if (item.resignationDate?.slice(0, 7) === month) branchRow.resignations += 1;
     branchRow.employees.add(personKey(item));
-    branchRow.alerts += item.validation.length || (item.absence?.hours || 0) >= 8 ? 1 : 0;
+    branchRow.alerts += item.validation.length || absenceHours(item) >= 8 ? 1 : 0;
 
     if (!branchRankingMap.has(rankingKey)) {
       branchRankingMap.set(rankingKey, {
@@ -728,15 +744,15 @@ function buildAnalytics(rows, dataset = {}) {
     branchRanking.loans += loanValue(item);
     branchRanking.vacations += vacationValue(item);
     branchRanking.vacationTerminations += vacationTerminationValue(item);
-    branchRanking.absenceHours += item.absence?.hours || 0;
-    branchRanking.absenceValue += item.absence?.value || 0;
+    branchRanking.absenceHours += absenceHours(item);
+    branchRanking.absenceValue += absenceValue(item);
     branchRanking.medicalCertificateHours += medicalCertificateHours(item);
     branchRanking.medicalCertificateValue += medicalCertificateValue(item);
     if (medicalCertificateEvents(item).length || medicalCertificateHours(item) || medicalCertificateValue(item)) branchRanking.medicalCertificateRecords += 1;
     if (item.admissionDate?.slice(0, 7) === month) branchRanking.admissions += 1;
     if (item.resignationDate?.slice(0, 7) === month) branchRanking.resignations += 1;
 
-    if ((item.absence?.hours || 0) > 0) {
+    if (absenceHours(item) > 0) {
       const absenceKey = `${item.period?.key}-${item.branch?.code}-${item.contract}-${item.name}`;
       absenceTopMap.set(absenceKey, {
         contract: item.contract,
@@ -744,9 +760,9 @@ function buildAnalytics(rows, dataset = {}) {
         branch: item.branch?.label,
         branchCode: item.branch?.code,
         period: item.period?.label,
-        hours: item.absence.hours,
-        value: item.absence.value,
-        level: absenceLevel(item.absence.hours),
+        hours: absenceHours(item),
+        value: absenceValue(item),
+        level: absenceLevel(absenceHours(item)),
       });
     }
 
@@ -1372,8 +1388,8 @@ function OvertimeRanking({ rows }) {
 function Attendance({ analytics }) {
   const yellow = analytics.absenceAlerts.filter((item) => item.level === "Amarelo").length;
   const red = analytics.absenceAlerts.filter((item) => item.level === "Vermelho").length;
-  const totalHours = sum(analytics.rows, (item) => item.absence?.hours);
-  const totalValue = sum(analytics.rows, (item) => item.absence?.value);
+  const totalHours = sum(analytics.rows, absenceHours);
+  const totalValue = sum(analytics.rows, absenceValue);
   const monthlyRows = analytics.byMonth.map((item) => [
     item.label,
     formatHours(item.absenceHours),
@@ -2488,8 +2504,8 @@ function baseEmployeeRow(item) {
     overtimeHours: item.overtime?.hours || 0,
     overtimeValue: item.overtime?.value || 0,
     overtimeReflectionValue: overtimeReflectionValue(item),
-    absenceHours: item.absence?.hours || 0,
-    absenceValue: item.absence?.value || 0,
+    absenceHours: absenceHours(item),
+    absenceValue: absenceValue(item),
     variablesValue: variablesValue(item),
     loansValue: loanValue(item),
     vacationCost: vacationValue(item),
