@@ -1080,7 +1080,12 @@ function KpiStrip({ analytics }) {
   return (
     <section className="kpis">
       <Kpi icon={Users} label="Colaboradores" value={analytics.employees.toLocaleString("pt-BR")} />
-      <Kpi icon={FileUp} label="Registros folha" value={analytics.records.toLocaleString("pt-BR")} />
+      <Kpi
+        icon={FileUp}
+        label="Colab. x mês"
+        value={analytics.records.toLocaleString("pt-BR")}
+        title={`${analytics.records.toLocaleString("pt-BR")} linhas de colaborador por competência no filtro atual`}
+      />
       <Kpi icon={BriefcaseBusiness} label="Folha bruta" value={compactCurrency(analytics.payroll)} title={currency(analytics.payroll)} />
       <Kpi icon={TrendingUp} label="Líquido" value={compactCurrency(analytics.net)} title={currency(analytics.net)} />
       <Kpi icon={CheckCircle2} label="Admissões" value={analytics.admissions.length.toLocaleString("pt-BR")} />
@@ -2330,7 +2335,7 @@ async function exportWorkbook(rows, dataset) {
     ],
     [
       { metric: "Colaboradores unicos", value: analytics.employees, type: "number" },
-      { metric: "Registros de folha", value: analytics.records, type: "number" },
+      { metric: "Colaboradores x mes", value: analytics.records, type: "number" },
       { metric: "Folha bruta", value: analytics.payroll, type: "currency" },
       { metric: "Descontos", value: analytics.discounts, type: "currency" },
       { metric: "Liquido", value: analytics.net, type: "currency" },
