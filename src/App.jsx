@@ -962,7 +962,12 @@ function buildAnalytics(rows, dataset = {}) {
 
   const byMonth = Array.from(byMonthMap.values())
     .sort((a, b) => a.period.localeCompare(b.period))
-    .map((item) => ({ ...item, employees: item.employees.size }));
+    .map((item) => ({ ...item, employees: item.employees.size }))
+    .map((item, index, list) => {
+      const previousEmployees = index > 0 ? list[index - 1].employees : item.employees;
+      const turnover = previousEmployees ? ((item.admissions + item.resignations) / 2 / previousEmployees) * 100 : 0;
+      return { ...item, turnover: Number(turnover.toFixed(2)) };
+    });
   const byBranch = Array.from(byBranchMap.values())
     .map((item) => ({ ...item, employees: item.employees.size }))
     .sort((a, b) => b.gross - a.gross);
@@ -1147,6 +1152,21 @@ function Overview({ analytics }) {
             <YAxis type="category" dataKey="branchCode" width={48} tick={{ fontSize: 11 }} />
             <Tooltip formatter={(value) => currency(value)} />
             <Bar dataKey="gross" name="Folha bruta" radius={[0, 4, 4, 0]} fill="#2563eb" />
+          </BarChart>
+        </Chart>
+      </Panel>
+      <Panel
+        title="Turnover"
+        icon={RefreshCw}
+        subtitle="(Nº de Demissões + Nº de Admissões) / 2 ÷ Nº de Funcionários Ativos (último dia do mês anterior) x 100"
+      >
+        <Chart>
+          <BarChart data={analytics.byMonth}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" />
+            <YAxis tickFormatter={(value) => `${value}%`} />
+            <Tooltip formatter={(value) => `${value}%`} />
+            <Bar dataKey="turnover" name="Turnover" radius={[4, 4, 0, 0]} fill="#f97316" />
           </BarChart>
         </Chart>
       </Panel>
@@ -2770,13 +2790,14 @@ function PeopleTable({ rows, dateField, empty }) {
   );
 }
 
-function Panel({ title, icon: Icon, children, wide = false }) {
+function Panel({ title, icon: Icon, children, wide = false, subtitle }) {
   return (
     <article className={wide ? "panel wide" : "panel"}>
       <header>
         <Icon size={18} />
         <h2>{title}</h2>
       </header>
+      {subtitle && <p className="panel-subtitle">{subtitle}</p>}
       {children}
     </article>
   );

@@ -745,6 +745,12 @@ h2 {
   color: #85523A;
 }
 
+.panel-subtitle {
+  margin: -8px 0 14px;
+  font-size: 11px;
+  color: #85523A;
+}
+
 .record-list {
   width: 100%;
   border: 1px solid #D7C7A3;
