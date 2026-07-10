@@ -26,6 +26,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   Legend,
   ResponsiveContainer,
   Tooltip,
@@ -63,6 +64,11 @@ function compactCurrency(value) {
   });
 }
 
+function formatPercent(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return `${Number(value).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+}
+
 function formatHours(value) {
   return `${Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}h`;
 }
@@ -76,6 +82,13 @@ function periodLabel(key) {
   if (!key) return "";
   const [year, month] = key.split("-");
   return `${month}/${year}`;
+}
+
+function previousPeriodKey(key) {
+  if (!key) return "";
+  const [year, month] = key.split("-").map(Number);
+  const date = new Date(year, month - 2, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function branchLabel(branch) {
@@ -891,6 +904,15 @@ function buildAnalytics(rows, dataset = {}) {
 
   const periodSet = new Set(rows.map((item) => item.period?.key).filter(Boolean));
   const branchSet = new Set(rows.map((item) => item.branch?.code).filter(Boolean));
+  const activeEmployeesByPeriod = new Map();
+  for (const item of dataset.employees || []) {
+    if (item.isGrandTotal) continue;
+    const period = item.period?.key;
+    const branchCode = item.branch?.code;
+    if (!period || !branchCode || !branchSet.has(branchCode)) continue;
+    if (!activeEmployeesByPeriod.has(period)) activeEmployeesByPeriod.set(period, new Set());
+    activeEmployeesByPeriod.get(period).add(personKey(item));
+  }
   const allBranchesSelected = dataset.branches?.length && branchSet.size === dataset.branches.length;
   const summariesForCurrentFilter = (dataset.chargeSummaries || []).filter((item) => {
     if (!periodSet.has(item.period?.key)) return false;
@@ -963,10 +985,17 @@ function buildAnalytics(rows, dataset = {}) {
   const byMonth = Array.from(byMonthMap.values())
     .sort((a, b) => a.period.localeCompare(b.period))
     .map((item) => ({ ...item, employees: item.employees.size }))
-    .map((item, index, list) => {
-      const previousEmployees = index > 0 ? list[index - 1].employees : item.employees;
-      const turnover = previousEmployees ? ((item.admissions + item.resignations) / 2 / previousEmployees) * 100 : 0;
-      return { ...item, turnover: Number(turnover.toFixed(2)) };
+    .map((item) => {
+      const previousPeriod = previousPeriodKey(item.period);
+      const activePrevious = activeEmployeesByPeriod.get(previousPeriod)?.size || 0;
+      const turnoverBase = (item.admissions + item.resignations) / 2;
+      const turnover = activePrevious ? (turnoverBase / activePrevious) * 100 : null;
+      return {
+        ...item,
+        activePrevious,
+        turnoverBase: Number(turnoverBase.toFixed(2)),
+        turnover: turnover === null ? null : Number(turnover.toFixed(2)),
+      };
     });
   const byBranch = Array.from(byBranchMap.values())
     .map((item) => ({ ...item, employees: item.employees.size }))
@@ -1156,24 +1185,27 @@ function Overview({ analytics }) {
         </Chart>
       </Panel>
       <Panel
-        title="Turnover"
+        title="Turnover mensal"
         icon={RefreshCw}
-        subtitle="(Nº de Demissões + Nº de Admissões) / 2 ÷ Nº de Funcionários Ativos (último dia do mês anterior) x 100"
+        wide
+        subtitle="(Nº de rescisões + Nº de admissões) / 2 ÷ colaboradores ativos no último dia do mês anterior x 100"
       >
         <Chart>
-          <BarChart data={analytics.byMonth}>
+          <BarChart data={analytics.byMonth} margin={{ top: 20, right: 12, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="label" />
             <YAxis tickFormatter={(value) => `${value}%`} />
-            <Tooltip formatter={(value) => `${value}%`} />
-            <Bar dataKey="turnover" name="Turnover" radius={[4, 4, 0, 0]} fill="#f97316" />
+            <Tooltip formatter={(value) => formatPercent(value)} labelFormatter={(label) => `Competência ${label}`} />
+            <Bar dataKey="turnover" name="Turnover" radius={[4, 4, 0, 0]} fill="#85523A">
+              <LabelList dataKey="turnover" position="top" formatter={formatPercent} fill="#1C0B01" fontSize={12} />
+            </Bar>
           </BarChart>
         </Chart>
       </Panel>
       <Panel title="Resumo por competência" icon={CalendarDays} wide>
         <DataTable
-          columns={["Mês", "Colaboradores", "Admissões", "Rescisões", "Bruto", "Líquido", "Consignados"]}
-          rows={analytics.byMonth.map((item) => [item.label, item.employees, item.admissions, item.resignations, currency(item.gross), currency(item.net), currency(item.loans)])}
+          columns={["Mês", "Colaboradores", "Base mês ant.", "Admissões", "Rescisões", "Turnover", "Bruto", "Líquido", "Consignados"]}
+          rows={analytics.byMonth.map((item) => [item.label, item.employees, item.activePrevious || "-", item.admissions, item.resignations, formatPercent(item.turnover), currency(item.gross), currency(item.net), currency(item.loans)])}
         />
       </Panel>
       <BranchRankingPanel analytics={analytics} />
@@ -2377,8 +2409,10 @@ async function exportWorkbook(rows, dataset) {
     [
       { header: "Periodo", key: "period", width: 12 },
       { header: "Colaboradores", key: "employees", width: 14 },
+      { header: "Base mes anterior", key: "activePrevious", width: 18 },
       { header: "Admissoes", key: "admissions", width: 12 },
       { header: "Rescisoes", key: "resignations", width: 12 },
+      { header: "Turnover %", key: "turnover", width: 12 },
       { header: "Bruto", key: "gross", width: 16 },
       { header: "Descontos", key: "discounts", width: 16 },
       { header: "Liquido", key: "net", width: 16 },
@@ -2399,8 +2433,10 @@ async function exportWorkbook(rows, dataset) {
     analytics.byMonth.map((item) => ({
       period: item.label,
       employees: item.employees,
+      activePrevious: item.activePrevious || "",
       admissions: item.admissions,
       resignations: item.resignations,
+      turnover: item.turnover,
       gross: item.gross,
       discounts: item.discounts,
       net: item.net,
