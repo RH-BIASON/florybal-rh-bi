@@ -1254,7 +1254,7 @@ h2 {
 }
 
 .auth-page {
-  min-height: 100vh;
+  min-height: 125vh;
   display: grid;
   place-items: center;
   padding: 24px;

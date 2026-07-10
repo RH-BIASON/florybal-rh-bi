@@ -987,7 +987,7 @@ function buildAnalytics(rows, dataset = {}) {
     .map((item) => ({ ...item, employees: item.employees.size }))
     .map((item) => {
       const previousPeriod = previousPeriodKey(item.period);
-      const activePrevious = activeEmployeesByPeriod.get(previousPeriod)?.size || 0;
+      const activePrevious = activeEmployeesByPeriod.get(previousPeriod)?.size || item.employees;
       const turnoverBase = (item.admissions + item.resignations) / 2;
       const turnover = activePrevious ? (turnoverBase / activePrevious) * 100 : null;
       return {
