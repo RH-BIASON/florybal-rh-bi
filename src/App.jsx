@@ -281,6 +281,11 @@ function App() {
     try {
       const statusResponse = await fetch("/api/auth/status");
       const status = statusResponse.ok ? await statusResponse.json() : { hasUsers: true };
+      if (status.configured === false) {
+        setCurrentUser({ id: "local", email: "local", name: "Administrador local", role: "admin" });
+        await loadData("");
+        return;
+      }
       setAuthMode(status.hasUsers ? "login" : "setup");
       if (!authToken) return;
       const response = await fetch("/api/auth/me", { headers: authHeaders(authToken) });

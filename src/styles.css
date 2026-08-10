@@ -1598,6 +1598,15 @@ h2 {
 }
 
 @media (max-width: 680px) {
+  .sidebar {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .sidebar .source-box {
+    display: none;
+  }
+
   .workspace {
     padding: 16px;
   }
