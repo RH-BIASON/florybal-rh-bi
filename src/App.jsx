@@ -545,10 +545,7 @@ function App() {
             </button>
           ))}
         </nav>
-        <div className="source-box">
-          <span>Fonte atual</span>
-          <strong>{dataset.sources.length} PDFs</strong>
-          <small>{((dataset.quality.employeeRecords || 0) + (dataset.provisions?.length || 0) + (dataset.vacationSchedule?.length || 0)).toLocaleString("pt-BR")} registros extraídos</small>
+        <div className="source-box compact-logout">
           <button onClick={logout}>Sair</button>
         </div>
       </aside>

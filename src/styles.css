@@ -61,7 +61,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
 }
 
@@ -165,6 +165,17 @@ button {
   border-radius: 8px;
   background: #fffdf7;
   color: #6B3C2A;
+}
+
+.source-box.compact-logout {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.source-box.compact-logout button {
+  margin-top: 0;
+  background: #fffdf7;
 }
 
 .workspace {
