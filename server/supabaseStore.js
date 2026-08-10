@@ -5,7 +5,7 @@ import path from "node:path";
 const DEFAULT_BUCKET = "payroll-pdfs";
 
 export function isSupabaseConfigured() {
-  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+  return process.env.DISABLE_SUPABASE !== "true" && Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
 function config() {

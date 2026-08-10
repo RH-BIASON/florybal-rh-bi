@@ -9,6 +9,7 @@
     "start": "node server/index.js",
     "parse": "python scripts/parse_payroll.py \"FOPAG Florybal 122025.pdf\" \"FOPAG Florybal 012026.pdf\" \"FOPAG Florybal 022026.pdf\" \"FOPAG Florybal 032026.pdf\" \"FOPAG Florybal 042026.pdf\" --out data/payroll.json",
     "test:parser": "python -m unittest scripts.test_parser",
+    "test:reports": "python -m unittest scripts.test_report_parsers",
     "audit:values": "python scripts/audit_payroll_values.py",
     "smoke:supabase": "node scripts/smoke_supabase.js"
   },

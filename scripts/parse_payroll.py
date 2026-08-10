@@ -7,6 +7,8 @@ from pathlib import Path
 
 import fitz
 
+from report_parsers import DIRECTORY, branch_info, parse_special_report, report_type
+
 
 RULES_PATH = Path(__file__).with_name("event_rules.json")
 MONEY_RE = re.compile(r"^-?\d{1,3}(?:\.\d{3})*,\d{2}$|^-?\d+,\d{2}$")
@@ -54,9 +56,18 @@ def normalize_branch_name(value):
     return re.sub(r"\bFILIAL(\d{2})\b", r"FILIAL \1", name)
 
 
+def format_cnpj(value):
+    digits = re.sub(r"\D", "", value or "")
+    if len(digits) != 14:
+        return value or ""
+    return f"{digits[:2]}.{digits[2:5]}.{digits[5:8]}/{digits[8:12]}-{digits[12:]}"
+
+
 def page_context(lines):
     period = None
     branch = None
+    company = next((line for line in lines[:12] if "FLORYBAL CHOCOLATES" in line.upper()), DIRECTORY["company"])
+    cnpj_match = re.search(r"CNPJ:\s*(\d{8}/\d{4}-\d{2})", " ".join(lines[:25]), re.I)
     for line in lines[:25]:
         period_match = PERIOD_RE.search(line)
         if period_match:
@@ -74,7 +85,15 @@ def page_context(lines):
                 "code": branch_match.group(1),
                 "name": branch_name,
                 "label": f"{branch_match.group(1)} - {branch_name}",
+                "company": company,
+                "cnpj": format_cnpj(cnpj_match.group(1)) if cnpj_match else "",
+                "establishment": branch_name,
+                "workplace": branch_name,
             }
+            if not branch["cnpj"]:
+                directory_branch = branch_info(branch["code"], branch_name)
+                if directory_branch:
+                    branch.update(directory_branch)
     return period, branch
 
 
@@ -249,6 +268,19 @@ def charge_values_after_codes(lines):
     }
 
 
+def sum_summary_word_values(page, codes):
+    total = 0.0
+    words = page.get_text("words")
+    for code in codes:
+        for word in words:
+            if word[4] != code or word[0] > 100:
+                continue
+            values = [candidate[4] for candidate in words if abs(candidate[1] - word[1]) <= 0.8 and 250 <= candidate[0] < 300 and MONEY_RE.match(candidate[4])]
+            if values:
+                total += br_money(values[-1])
+    return round(total, 2)
+
+
 def extract_charge_summaries(path):
     summaries = []
     doc = fitz.open(path)
@@ -271,6 +303,12 @@ def extract_charge_summaries(path):
                 "branch": None if is_grand_total else branch,
                 "isGrandTotal": is_grand_total,
                 "charges": {key: round(value, 2) for key, value in charge_values_after_codes(lines).items()},
+                "payroll": {
+                    "vacationsTakenGross": sum_summary_word_values(page, {"71198", "71199"}),
+                    "vacationsNet": sum_summary_word_values(page, {"00498"}),
+                    "resignationsNet": sum_summary_word_values(page, {"00499"}),
+                    "payrollNet": sum_summary_word_values(page, {"00500"}),
+                },
             }
         )
     return summaries
@@ -451,10 +489,34 @@ def extract_pdf_grand_total(path):
 def build_dataset(paths):
     employees = []
     charge_summaries = []
+    provisions = []
+    provision_summaries = []
+    vacation_schedule = []
+    report_imports = []
     source_totals = []
     diagnostics = []
     for path in paths:
         pdf_path = Path(path)
+        with fitz.open(pdf_path) as report_doc:
+            preview = "\n".join(page.get_text("text") for page in report_doc[: min(2, len(report_doc))])
+        detected_type = report_type(preview)
+        if detected_type != "payroll":
+            kind, period, records, summaries, schedule_rows, report_diagnostics = parse_special_report(pdf_path)
+            provisions.extend(records)
+            provision_summaries.extend(summaries)
+            vacation_schedule.extend(schedule_rows)
+            diagnostics.extend(report_diagnostics)
+            branch_codes = sorted({item["branch"]["code"] for item in [*records, *schedule_rows]})
+            report_imports.append({
+                "reportType": kind,
+                "period": period,
+                "company": DIRECTORY["company"],
+                "cnpjs": sorted({item["cnpj"] for item in [*records, *schedule_rows] if item.get("cnpj")}),
+                "branchCodes": branch_codes,
+                "sourceFile": pdf_path.name,
+                "status": "read" if period and not any(item.get("level") == "error" for item in report_diagnostics) else "pending",
+            })
+            continue
         employees.extend(parse_pdf(pdf_path, diagnostics))
         charge_summaries.extend(extract_charge_summaries(pdf_path))
         total = extract_pdf_grand_total(pdf_path)
@@ -469,19 +531,83 @@ def build_dataset(paths):
                     "message": "Total geral do PDF não encontrado para reconciliação.",
                 }
             )
+        payroll_rows = [item for item in employees if item["sourceFile"] == pdf_path.name]
+        payroll_period = payroll_rows[0]["period"] if payroll_rows else None
+        report_imports.append({
+            "reportType": "payroll",
+            "period": payroll_period,
+            "company": DIRECTORY["company"],
+            "cnpjs": sorted({item["branch"].get("cnpj") for item in payroll_rows if item["branch"].get("cnpj")}),
+            "branchCodes": sorted({item["branch"]["code"] for item in payroll_rows}),
+            "sourceFile": pdf_path.name,
+            "status": "read" if total and payroll_period else "pending",
+        })
 
-    periods = sorted({item["period"]["key"] for item in employees if item["period"]})
+    active_source_by_key = {}
+    duplicate_report_keys = set()
+    for report in report_imports:
+        key = f"{report['reportType']}:{report['period']['key'] if report.get('period') else ''}"
+        if key in active_source_by_key:
+            duplicate_report_keys.add(key)
+        active_source_by_key[key] = report["sourceFile"]
+    if duplicate_report_keys:
+        for key in sorted(duplicate_report_keys):
+            diagnostics.append({
+                "sourceFile": active_source_by_key[key], "sourcePage": None, "field": "competência",
+                "level": "warning", "message": f"Relatório duplicado ({key}); foi considerada a última entrada do lote.",
+            })
+        def is_active(item, fallback_type):
+            key = f"{item.get('reportType', fallback_type)}:{item.get('period', {}).get('key', '')}"
+            return active_source_by_key.get(key) == item.get("sourceFile")
+        employees = [item for item in employees if is_active(item, "payroll")]
+        charge_summaries = [item for item in charge_summaries if is_active(item, "payroll")]
+        provisions = [item for item in provisions if is_active(item, item.get("reportType", "vacation_provision"))]
+        provision_summaries = [item for item in provision_summaries if is_active(item, item.get("reportType", "vacation_provision"))]
+        vacation_schedule = [item for item in vacation_schedule if is_active(item, "vacation_schedule")]
+        active_sources = set(active_source_by_key.values())
+        source_totals = [item for item in source_totals if item["sourceFile"] in active_sources]
+        report_imports = [report for report in report_imports if active_source_by_key[f"{report['reportType']}:{report['period']['key'] if report.get('period') else ''}"] == report["sourceFile"]]
+
+    periods = sorted({item["period"]["key"] for item in [*employees, *provisions, *vacation_schedule] if item.get("period")})
     branches = sorted(
-        {json.dumps(item["branch"], ensure_ascii=False, sort_keys=True) for item in employees if item["branch"]}
+        {json.dumps(item["branch"], ensure_ascii=False, sort_keys=True) for item in [*employees, *provisions, *vacation_schedule] if item.get("branch")}
     )
+    quality = summarize_quality(employees, source_totals, diagnostics)
+    for report in report_imports:
+        if report["reportType"] not in {"vacation_provision", "thirteenth_provision"}:
+            continue
+        source = report["sourceFile"]
+        source_records = [item for item in provisions if item["sourceFile"] == source]
+        grand = next((item for item in provision_summaries if item["sourceFile"] == source and item["isGrandTotal"]), None)
+        fields = ["currentBalance", "inss", "fgts", "total"]
+        app = {field: round(sum(item[field] for item in source_records), 2) for field in fields}
+        pdf = {field: grand[field] if grand else 0 for field in fields}
+        difference = {field: round(app[field] - pdf[field], 2) for field in fields}
+        quality["reconciliation"].append({
+            "reportType": report["reportType"], "period": report["period"], "sourceFile": source, "sourcePage": grand["sourcePage"] if grand else None,
+            "pdf": pdf, "app": app, "difference": difference,
+            "matched": bool(grand) and all(abs(difference[field]) <= 0.10 for field in fields),
+            "note": "Diferenças de até R$ 0,10 são toleradas por arredondamento das linhas individuais.",
+        })
+    quality["reconciliationMatched"] = (
+        bool(quality["reconciliation"] or vacation_schedule)
+        and all(item["matched"] for item in quality["reconciliation"])
+        and not any(item.get("level") == "error" for item in diagnostics)
+    )
+    quality["diagnostics"] = diagnostics
+    quality["diagnosticCount"] = len(diagnostics)
     return {
         "generatedAt": datetime.now().isoformat(timespec="seconds"),
         "sources": [Path(path).name for path in paths],
         "periods": periods,
         "branches": [json.loads(item) for item in branches],
         "chargeSummaries": charge_summaries,
+        "provisions": provisions,
+        "provisionSummaries": provision_summaries,
+        "vacationSchedule": vacation_schedule,
+        "reportImports": report_imports,
         "employees": employees,
-        "quality": summarize_quality(employees, source_totals, diagnostics),
+        "quality": quality,
     }
 
 

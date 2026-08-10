@@ -17,6 +17,13 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -409,7 +416,7 @@ h2 {
 
 .kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: minmax(112px, 0.8fr) minmax(112px, 0.8fr) minmax(330px, 2.5fr) repeat(4, minmax(112px, 0.85fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -445,6 +452,63 @@ h2 {
 .kpi.warn strong {
   color: #dc2626;
 }
+
+.payroll-composition {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  align-content: center;
+}
+
+.composition-values {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.composition-values > div {
+  min-width: 0;
+  padding: 0 9px;
+  border-left: 1px solid #EEDFB9;
+}
+
+.composition-values span,
+.composition-values strong {
+  display: block;
+  white-space: nowrap;
+}
+
+.composition-values span {
+  margin-bottom: 5px;
+  font-size: 10px;
+}
+
+.composition-values strong {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.provision-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid #EEDFB9;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.provision-metrics > div {
+  display: grid;
+  gap: 5px;
+  padding: 13px;
+  border-right: 1px solid #EEDFB9;
+  border-bottom: 1px solid #EEDFB9;
+}
+
+.provision-metrics > div:nth-child(even) { border-right: 0; }
+.provision-metrics > div:nth-last-child(-n + 2) { border-bottom: 0; }
+.provision-metrics span { color: #85523A; font-size: 11px; }
+.provision-metrics strong { font-size: 17px; }
+.provision-metrics .total { background: #FDF9EB; }
 
 .status-strip {
   display: flex;
@@ -1518,6 +1582,8 @@ h2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .payroll-composition { grid-column: 1 / -1; }
+
   .rubric-intro {
     grid-template-columns: 1fr;
   }
@@ -1535,6 +1601,15 @@ h2 {
   .workspace {
     padding: 16px;
   }
+
+  .kpis { grid-template-columns: 1fr; }
+  .payroll-composition { grid-column: auto; grid-template-columns: 1fr; }
+  .composition-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .composition-values > div { padding: 8px; border-top: 1px solid #EEDFB9; }
+  .provision-metrics { grid-template-columns: 1fr; }
+  .provision-metrics > div { border-right: 0; }
+  .provision-metrics > div:nth-last-child(-n + 2) { border-bottom: 1px solid #EEDFB9; }
+  .provision-metrics > div:last-child { border-bottom: 0; }
 
   .topbar,
   .actions {

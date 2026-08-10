@@ -19,6 +19,7 @@ const pythonBin = process.env.PYTHON_BIN || "python";
 const dataDir = path.join(root, "data");
 const uploadDir = path.join(dataDir, "uploads");
 const historyDir = path.join(dataDir, "import-history");
+const payrollDataPath = process.env.PAYROLL_DATA_PATH || path.join(dataDir, "payroll.json");
 const storage = multer.diskStorage({
   destination: uploadDir,
   filename: (_req, file, cb) => {
@@ -189,8 +190,7 @@ async function currentPayrollDataset() {
     const payload = await latestPayrollFromSupabase();
     if (payload) return payload;
   }
-  const dataPath = path.join(root, "data", "payroll.json");
-  if (fs.existsSync(dataPath)) return JSON.parse(fs.readFileSync(dataPath, "utf8"));
+  if (fs.existsSync(payrollDataPath)) return JSON.parse(fs.readFileSync(payrollDataPath, "utf8"));
   return null;
 }
 
@@ -201,10 +201,12 @@ function importResponseSummary(parsedPayload, files) {
   const terminations = rows.filter((row) => row.termination?.date).length;
   return {
     files: files.map((file) => file.originalname),
+    reports: parsedPayload.reportImports || [],
     periods: parsedPayload.periods || [],
     branches: branches.map((branch) => ({ code: branch.code, label: branch.label })),
     branchCount: branches.length,
     employeeRecords: parsedPayload.quality?.employeeRecords || rows.length,
+    reportRecords: rows.length + (parsedPayload.provisions?.length || 0) + (parsedPayload.vacationSchedule?.length || 0),
     gross: rows.reduce((total, row) => total + Number(row.totals?.gross || 0), 0),
     net: rows.reduce((total, row) => total + Number(row.totals?.net || 0), 0),
     admissions,
@@ -226,12 +228,11 @@ app.get("/api/payroll", requireAuth, async (_req, res) => {
       console.error("Falha ao ler Supabase, usando fallback local:", error);
     }
   }
-  const dataPath = path.join(root, "data", "payroll.json");
-  if (!fs.existsSync(dataPath)) {
+  if (!fs.existsSync(payrollDataPath)) {
     res.status(404).json({ error: "Nenhum dado importado ainda." });
     return;
   }
-  res.sendFile(dataPath);
+  res.sendFile(payrollDataPath);
 });
 
 app.get("/api/import-history", requireAuth, async (_req, res) => {
@@ -268,7 +269,7 @@ app.delete("/api/periods/:periodKey", requireAuth, requireAdmin, async (req, res
   }
 
   const id = `${importId()}-periodo-removido`;
-  const outputPath = path.join(root, "data", "payroll.json");
+  const outputPath = payrollDataPath;
   const payload = removePayrollPeriods(current, [periodKey]);
   await persistImport(id, "imported", [], payload, `Periodo ${periodKey} removido da base ativa.`);
   fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2), "utf8");
@@ -281,7 +282,7 @@ app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, r
     return;
   }
 
-  const outputPath = path.join(root, "data", "payroll.json");
+  const outputPath = payrollDataPath;
   const id = importId();
   const pendingPath = path.join(root, "data", `payroll-import-${id}.json`);
   const args = [path.join(root, "scripts", "parse_payroll.py"), ...req.files.map((file) => file.path), "--out", pendingPath];
@@ -331,6 +332,8 @@ app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, r
     }
     try {
       const parsedPayload = JSON.parse(fs.readFileSync(pendingPath, "utf8"));
+      const importedAt = new Date().toISOString();
+      parsedPayload.reportImports = (parsedPayload.reportImports || []).map((item) => ({ ...item, importedAt }));
       if (!parsedPayload.quality?.reconciliationMatched) {
         fs.rm(pendingPath, { force: true }, () => {});
         await persistImport(id, "blocked", req.files, parsedPayload, "Totais extraidos nao bateram com o total geral do PDF.");
@@ -344,15 +347,24 @@ app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, r
         return;
       }
       const basePayload = await currentPayrollDataset();
-      const duplicatePeriods = (parsedPayload.periods || []).filter((period) => basePayload?.periods?.includes(period));
+      const parsedReports = parsedPayload.reportImports?.length
+        ? parsedPayload.reportImports
+        : (parsedPayload.periods || []).map((period) => ({ reportType: "payroll", period: { key: period } }));
+      const baseReportKeys = new Set((basePayload?.reportImports || []).map((item) => `${item.reportType}:${item.period?.key}`));
+      (basePayload?.employees || []).forEach((item) => {
+        if (item.period?.key) baseReportKeys.add(`payroll:${item.period.key}`);
+      });
+      const duplicateReports = parsedReports.filter((item) => baseReportKeys.has(`${item.reportType}:${item.period?.key}`));
+      const duplicatePeriods = [...new Set(duplicateReports.map((item) => item.period?.key).filter(Boolean))];
       const replaceExisting = req.body?.replaceExisting === "true" || req.query?.replaceExisting === "true";
-      if (duplicatePeriods.length && !replaceExisting) {
+      if (duplicateReports.length && !replaceExisting) {
         fs.rm(pendingPath, { force: true }, () => {});
         for (const file of req.files) fs.rm(file.path, { force: true }, () => {});
         res.status(409).json({
           error: "Competencia ja existe na base ativa.",
           code: "PERIOD_EXISTS",
           periods: duplicatePeriods,
+          reports: duplicateReports,
           message: `A competencia ${duplicatePeriods.join(", ")} ja existe. Confirme para substituir somente esse(s) mes(es).`,
         });
         return;

@@ -102,12 +102,25 @@ function rebuildQuality(baseDataset, importedDataset, employees, newPeriods) {
 }
 
 export function mergePayrollDatasets(baseDataset, importedDataset) {
-  if (!baseDataset?.employees?.length) return importedDataset;
-  if (!importedDataset?.employees?.length) return baseDataset;
-
-  const newPeriods = new Set(importedDataset.periods || importedDataset.employees.map((employee) => employee.period?.key).filter(Boolean));
+  if (!baseDataset) return importedDataset;
+  const baseReports = baseDataset.reportImports?.length
+    ? baseDataset.reportImports
+    : uniqBy(baseDataset.employees || [], (item) => `${item.sourceFile}:${item.period?.key}`).map((item) => ({
+        reportType: "payroll",
+        period: item.period,
+        company: item.branch?.company || "",
+        sourceFile: item.sourceFile,
+        status: "read",
+      }));
+  const importedReports = importedDataset.reportImports?.length
+    ? importedDataset.reportImports
+    : (importedDataset.periods || []).map((period) => ({ reportType: "payroll", period: { key: period } }));
+  const replacementKeys = new Set(importedReports.map((item) => `${item.reportType}:${item.period?.key}`).filter((key) => !key.endsWith(":")));
+  const payrollPeriods = new Set(importedReports.filter((item) => item.reportType === "payroll").map((item) => item.period?.key));
+  const replaces = (item, fallbackType) => replacementKeys.has(`${item.reportType || fallbackType}:${item.period?.key}`);
+  const newPeriods = payrollPeriods;
   const preservedEmployees = (baseDataset.employees || []).filter((employee) => !newPeriods.has(employee.period?.key));
-  const employees = [...preservedEmployees, ...importedDataset.employees].sort((a, b) => {
+  const employees = [...preservedEmployees, ...(importedDataset.employees || [])].sort((a, b) => {
     const periodOrder = String(a.period?.key || "").localeCompare(String(b.period?.key || ""));
     if (periodOrder) return periodOrder;
     const branchOrder = String(a.branch?.code || "").localeCompare(String(b.branch?.code || ""));
@@ -115,13 +128,39 @@ export function mergePayrollDatasets(baseDataset, importedDataset) {
     return String(a.contract || "").localeCompare(String(b.contract || ""), undefined, { numeric: true });
   });
 
-  const periods = sortPeriods(employees.map((employee) => employee.period?.key).filter(Boolean));
-  const branches = sortBranches(employees.map((employee) => employee.branch).filter(Boolean));
-  const sources = uniqBy(employees, (employee) => employee.sourceFile).map((employee) => employee.sourceFile);
+  const provisions = [
+    ...(baseDataset.provisions || []).filter((item) => !replaces(item, "vacation_provision")),
+    ...(importedDataset.provisions || []),
+  ];
+  const provisionSummaries = [
+    ...(baseDataset.provisionSummaries || []).filter((item) => !replaces(item, "vacation_provision")),
+    ...(importedDataset.provisionSummaries || []),
+  ];
+  const vacationSchedule = [
+    ...(baseDataset.vacationSchedule || []).filter((item) => !replaces(item, "vacation_schedule")),
+    ...(importedDataset.vacationSchedule || []),
+  ];
+  const reportImports = [
+    ...baseReports.filter((item) => !replacementKeys.has(`${item.reportType}:${item.period?.key}`)),
+    ...importedReports,
+  ];
+  const allRecords = [...employees, ...provisions, ...vacationSchedule];
+  const periods = sortPeriods(allRecords.map((item) => item.period?.key).filter(Boolean));
+  const branches = sortBranches(allRecords.map((item) => item.branch).filter(Boolean));
+  const sources = [...new Set(reportImports.map((item) => item.sourceFile).filter(Boolean))];
   const chargeSummaries = [
     ...(baseDataset.chargeSummaries || []).filter((item) => !newPeriods.has(periodOfSummary(item))),
     ...(importedDataset.chargeSummaries || []),
   ];
+  const sourceKey = new Map((baseDataset.reportImports || []).map((item) => [item.sourceFile, `${item.reportType}:${item.period?.key}`]));
+  const oldReconciliation = (baseDataset.quality?.reconciliation || []).filter((item) => {
+    const key = `${item.reportType || "payroll"}:${item.period?.key || sourcePeriodMap(baseDataset).get(item.sourceFile) || sourceKey.get(item.sourceFile)?.split(":")[1] || ""}`;
+    return !replacementKeys.has(key);
+  });
+  const reconciliation = [...oldReconciliation, ...(importedDataset.quality?.reconciliation || [])];
+  const quality = rebuildQuality(baseDataset, importedDataset, employees, newPeriods);
+  quality.reconciliation = reconciliation;
+  quality.reconciliationMatched = reconciliation.length ? reconciliation.every((item) => item.matched) : Boolean(vacationSchedule.length);
 
   return {
     ...baseDataset,
@@ -131,19 +170,28 @@ export function mergePayrollDatasets(baseDataset, importedDataset) {
     periods,
     branches,
     chargeSummaries,
+    provisions,
+    provisionSummaries,
+    vacationSchedule,
+    reportImports,
     employees,
-    quality: rebuildQuality(baseDataset, importedDataset, employees, newPeriods),
+    quality,
   };
 }
 
 export function removePayrollPeriods(baseDataset, periodKeys) {
   const removedPeriods = new Set(periodKeys || []);
-  if (!baseDataset?.employees?.length || !removedPeriods.size) return baseDataset;
+  if (!baseDataset || !removedPeriods.size) return baseDataset;
 
-  const employees = baseDataset.employees.filter((employee) => !removedPeriods.has(employee.period?.key));
-  const periods = sortPeriods(employees.map((employee) => employee.period?.key).filter(Boolean));
-  const branches = sortBranches(employees.map((employee) => employee.branch).filter(Boolean));
-  const sources = uniqBy(employees, (employee) => employee.sourceFile).map((employee) => employee.sourceFile);
+  const employees = (baseDataset.employees || []).filter((employee) => !removedPeriods.has(employee.period?.key));
+  const provisions = (baseDataset.provisions || []).filter((item) => !removedPeriods.has(item.period?.key));
+  const provisionSummaries = (baseDataset.provisionSummaries || []).filter((item) => !removedPeriods.has(item.period?.key));
+  const vacationSchedule = (baseDataset.vacationSchedule || []).filter((item) => !removedPeriods.has(item.period?.key));
+  const reportImports = (baseDataset.reportImports || []).filter((item) => !removedPeriods.has(item.period?.key));
+  const allRecords = [...employees, ...provisions, ...vacationSchedule];
+  const periods = sortPeriods(allRecords.map((item) => item.period?.key).filter(Boolean));
+  const branches = sortBranches(allRecords.map((item) => item.branch).filter(Boolean));
+  const sources = [...new Set(reportImports.map((item) => item.sourceFile).filter(Boolean))];
   const chargeSummaries = (baseDataset.chargeSummaries || []).filter((item) => !removedPeriods.has(periodOfSummary(item)));
 
   return {
@@ -153,6 +201,10 @@ export function removePayrollPeriods(baseDataset, periodKeys) {
     periods,
     branches,
     chargeSummaries,
+    provisions,
+    provisionSummaries,
+    vacationSchedule,
+    reportImports,
     employees,
     quality: rebuildQuality(baseDataset, { quality: {} }, employees, removedPeriods),
   };

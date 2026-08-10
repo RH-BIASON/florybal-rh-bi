@@ -1,0 +1,26 @@
+{
+  "company": "FLORYBAL CHOCOLATES LTDA",
+  "establishments": {
+    "000": { "name": "FLORYBAL MATRIZ", "cnpj": "93.778.066/0001-98" },
+    "001": { "name": "FLORYBAL FILIAL 01", "cnpj": "93.778.066/0002-79" },
+    "002": { "name": "FLORYBAL FILIAL 02", "cnpj": "93.778.066/0003-50" },
+    "003": { "name": "FLORYBAL FILIAL 09", "cnpj": "93.778.066/0004-30" },
+    "004": { "name": "FLORYBAL FILIAL 04", "cnpj": "93.778.066/0005-11" },
+    "005": { "name": "FLORYBAL FILIAL 05", "cnpj": "93.778.066/0006-00" },
+    "006": { "name": "FLORYBAL FILIAL 06", "cnpj": "93.778.066/0007-83" },
+    "007": { "name": "FLORYBAL FILIAL 07", "cnpj": "93.778.066/0008-64" },
+    "008": { "name": "FLORYBAL FILIAL 08", "cnpj": "93.778.066/0009-45" },
+    "010": { "name": "FLORYBAL FILIAL 10", "cnpj": "93.778.066/0010-89" },
+    "011": { "name": "FLORYBAL FILIAL 11", "cnpj": "93.778.066/0011-60" },
+    "012": { "name": "FLORYBAL FILIAL 12", "cnpj": "93.778.066/0012-40" },
+    "013": { "name": "FLORYBAL FILIAL 13", "cnpj": "93.778.066/0013-21" },
+    "014": { "name": "FLORYBAL FILIAL 14", "cnpj": "93.778.066/0014-02" },
+    "015": { "name": "FLORYBAL FILIAL 15", "cnpj": "93.778.066/0015-93" },
+    "016": { "name": "FLORYBAL FILIAL 16", "cnpj": "93.778.066/0016-74" },
+    "017": { "name": "FLORYBAL FILIAL 17", "cnpj": "93.778.066/0017-55" },
+    "018": { "name": "FLORYBAL FILIAL 18", "cnpj": "93.778.066/0018-36" },
+    "019": { "name": "FLORYBAL FILIAL 19", "cnpj": "93.778.066/0019-17" },
+    "020": { "name": "FLORYBAL FILIAL 20", "cnpj": "93.778.066/0020-50" },
+    "021": { "name": "FLORYBAL FILIAL 21", "cnpj": "93.778.066/0021-31" }
+  }
+}

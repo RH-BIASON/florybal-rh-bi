@@ -35,13 +35,10 @@ import {
 } from "recharts";
 
 const chargeLabels = {
-  inss_employee: "INSS colaborador",
   inss_company: "INSS empresa",
   fgts: "FGTS",
   rat_fap: "RAT x FAP",
   third_parties: "Terceiros",
-  gps_total: "Total GPS",
-  irrf: "IRRF",
 };
 
 const chartColors = ["#f59e0b", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64748b", "#0f766e"];
@@ -56,12 +53,11 @@ function currency(value) {
 }
 
 function compactCurrency(value) {
-  return Number(value || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    notation: "compact",
-    maximumFractionDigits: 2,
-  });
+  const amount = Number(value || 0);
+  const compact = (divisor, suffix) => `R$ ${(amount / divisor).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${suffix}`;
+  if (Math.abs(amount) >= 1_000_000) return compact(1_000_000, "mi");
+  if (Math.abs(amount) >= 100_000) return compact(1_000, "mil");
+  return currency(amount);
 }
 
 function formatPercent(value) {
@@ -364,7 +360,7 @@ function App() {
       const result = await response.json();
       if (response.status === 409 && result.code === "PERIOD_EXISTS") {
         setImportModal(null);
-        setReplacePrompt({ periods: result.periods || [], files: pdfs });
+        setReplacePrompt({ periods: result.periods || [], reports: result.reports || [], files: pdfs });
         return;
       }
       if (!response.ok) throw new Error(result.error || "Falha ao importar PDFs");
@@ -433,12 +429,17 @@ function App() {
         !normalized ||
         employee.name.toLowerCase().includes(normalized) ||
         employee.contract.includes(normalized) ||
-        employee.jobTitle.toLowerCase().includes(normalized);
+        employee.jobTitle.toLowerCase().includes(normalized) ||
+        employee.branch?.cnpj?.toLowerCase().includes(normalized) ||
+        employee.branch?.workplace?.toLowerCase().includes(normalized);
       return periodOk && branchOk && queryOk;
     });
   }, [dataset, selectedPeriods, selectedBranches, query]);
 
-  const analytics = useMemo(() => buildAnalytics(filtered, dataset), [filtered, dataset]);
+  const analytics = useMemo(
+    () => buildAnalytics(filtered, dataset, { selectedPeriods, selectedBranches, query }),
+    [filtered, dataset, selectedPeriods, selectedBranches, query],
+  );
 
   if (authLoading) return <ShellState icon={RefreshCw} label="Carregando acesso..." />;
   if (!currentUser) return <AuthScreen mode={authMode} error={error} onSubmit={handleAuthSubmit} />;
@@ -470,6 +471,8 @@ function App() {
             ["variables", BriefcaseBusiness, "Variáveis e consignados"],
             ["charges", Landmark, "Encargos"],
             ["benefits", CalendarDays, "Férias"],
+            ["provisions", Banknote, "Provisões"],
+            ["vacation-schedule", CalendarDays, "Programação de férias"],
             ["rubrics", BookOpenCheck, "Rubricas utilizadas"],
             ["audit", ClipboardCheck, "Auditoria"],
             ...(isAdmin ? [["access", UserPlus, "Acessos"]] : []),
@@ -483,7 +486,7 @@ function App() {
         <div className="source-box">
           <span>Fonte atual</span>
           <strong>{dataset.sources.length} PDFs</strong>
-          <small>{dataset.quality.employeeRecords.toLocaleString("pt-BR")} registros extraídos</small>
+          <small>{((dataset.quality.employeeRecords || 0) + (dataset.provisions?.length || 0) + (dataset.vacationSchedule?.length || 0)).toLocaleString("pt-BR")} registros extraídos</small>
           <button onClick={logout}>Sair</button>
         </div>
       </aside>
@@ -495,7 +498,7 @@ function App() {
             <h1>Folhas de pagamento Florybal</h1>
           </div>
           <div className="actions">
-            <button className="secondary-action" onClick={() => exportWorkbook(filtered, dataset)} title="Exportar visão filtrada em Excel com abas">
+            <button className="secondary-action" onClick={() => exportWorkbook(filtered, dataset, analytics)} title="Exportar visão filtrada em Excel com abas">
               <Download size={18} />
               Excel
             </button>
@@ -509,8 +512,8 @@ function App() {
         {importModal && <ImportProgressModal state={importModal} onClose={() => setImportModal(null)} />}
         {replacePrompt && (
           <ConfirmDialog
-            title="Substituir competência existente?"
-            message={`A competência ${replacePrompt.periods.map(periodLabel).join(", ")} já existe na base. Deseja substituir somente esse mês e manter os demais períodos salvos?`}
+            title="Substituir relatório existente?"
+            message={`Já existe importação do mesmo tipo na competência ${replacePrompt.periods.map(periodLabel).join(", ")}. Deseja substituir somente esse relatório e manter os demais tipos e períodos salvos?`}
             confirmLabel="Substituir"
             cancelLabel="Cancelar"
             onConfirm={confirmReplacePeriods}
@@ -553,7 +556,7 @@ function App() {
           <div className="filter-group branches">
             <div className="filter-label">
               <Filter size={16} />
-              Filiais
+              Empresa / CNPJ / estabelecimento
               <span className="filter-count">{selectedBranches.size || branches.length} de {branches.length}</span>
             </div>
             <div className="quick-row compact">
@@ -567,7 +570,7 @@ function App() {
                   key={branch.code}
                   className={selectedBranches.has(branch.code) ? "branch-cell active" : "branch-cell"}
                   onClick={() => toggleSet(branch.code, setSelectedBranches)}
-                  title={branch.label}
+                  title={`${branch.label} | ${branch.cnpj || "CNPJ não informado"}`}
                 >
                   {branch.code}
                 </button>
@@ -614,6 +617,8 @@ function App() {
         {view === "variables" && <Variables analytics={analytics} />}
         {view === "charges" && <Charges analytics={analytics} />}
         {view === "benefits" && <Benefits analytics={analytics} />}
+        {view === "provisions" && <Provisions analytics={analytics} />}
+        {view === "vacation-schedule" && <VacationSchedule analytics={analytics} />}
         {view === "rubrics" && <RubricsCatalog dataset={dataset} rows={filtered} />}
         {view === "audit" && <Audit dataset={dataset} analytics={analytics} importHistory={importHistory} onRemovePeriod={removePeriod} removingPeriod={removingPeriod} isAdmin={isAdmin} />}
         {view === "access" && isAdmin && <AccessPanel apiRequest={apiRequest} currentUser={currentUser} />}
@@ -622,7 +627,7 @@ function App() {
   );
 }
 
-function buildAnalytics(rows, dataset = {}) {
+function buildAnalytics(rows, dataset = {}, filterContext = {}) {
   dataset = dataset || {};
   const personKey = (item) => `${item.branch?.code}-${item.contract}`;
   const monthEmployeeKey = (item) => `${item.period?.key}-${item.branch?.code}-${item.contract}`;
@@ -1075,7 +1080,93 @@ function buildAnalytics(rows, dataset = {}) {
     { hours50: 0, value50: 0, hours100: 0, value100: 0, reflectionHours: 0, reflectionValue: 0 },
   );
 
-  return { rows, records, employees, payroll, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop };
+  const selectedPeriods = filterContext.selectedPeriods || new Set();
+  const selectedBranches = filterContext.selectedBranches || new Set();
+  const normalizedQuery = String(filterContext.query || "").trim().toLowerCase();
+  const periodAllowed = (item) => !selectedPeriods.size || selectedPeriods.has(item.period?.key);
+  const branchAllowed = (item) => !selectedBranches.size || selectedBranches.has(item.branch?.code);
+  const queryAllowed = (item) => !normalizedQuery || [item.name, item.contract, item.company, item.cnpj, item.branch?.name, item.branch?.workplace]
+    .some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+  const latestPeriod = (items) => items.map((item) => item.period?.key).filter(Boolean).sort().at(-1) || "";
+
+  function currentProvision(reportType) {
+    const records = (dataset.provisions || []).filter((item) => item.reportType === reportType && periodAllowed(item) && branchAllowed(item) && queryAllowed(item));
+    const currentPeriod = latestPeriod(records);
+    if (!currentPeriod) return { reportType, period: "", currentBalance: 0, inss: 0, fgts: 0, total: 0, records: [] };
+    const currentRecords = records.filter((item) => item.period?.key === currentPeriod);
+    const allReportBranches = new Set((dataset.provisions || []).filter((item) => item.reportType === reportType && item.period?.key === currentPeriod).map((item) => item.branch?.code));
+    const canUseGrand = !normalizedQuery && allReportBranches.size > 0 && [...allReportBranches].every((code) => selectedBranches.has(code));
+    const summaries = (dataset.provisionSummaries || []).filter((item) => item.reportType === reportType && item.period?.key === currentPeriod);
+    const officialRows = canUseGrand
+      ? summaries.filter((item) => item.isGrandTotal)
+      : summaries.filter((item) => !item.isGrandTotal && branchAllowed(item));
+    const valueRows = !normalizedQuery && officialRows.length ? officialRows : currentRecords;
+    return {
+      reportType,
+      period: currentPeriod,
+      currentBalance: sum(valueRows, (item) => item.currentBalance),
+      inss: sum(valueRows, (item) => item.inss),
+      fgts: sum(valueRows, (item) => item.fgts),
+      total: sum(valueRows, (item) => item.total),
+      records: currentRecords,
+    };
+  }
+
+  const vacationProvision = currentProvision("vacation_provision");
+  const thirteenthProvision = currentProvision("thirteenth_provision");
+  const provisionChart = [
+    { name: "Férias", value: vacationProvision.currentBalance },
+    { name: "13º salário", value: thirteenthProvision.currentBalance },
+    { name: "INSS", value: vacationProvision.inss + thirteenthProvision.inss },
+    { name: "FGTS", value: vacationProvision.fgts + thirteenthProvision.fgts },
+  ];
+
+  const scheduleRows = (dataset.vacationSchedule || []).filter((item) => periodAllowed(item) && branchAllowed(item) && queryAllowed(item));
+  const schedulePeriod = latestPeriod(scheduleRows);
+  const currentSchedule = scheduleRows.filter((item) => item.period?.key === schedulePeriod);
+  const referenceDate = currentSchedule.map((item) => item.period?.end).filter(Boolean).sort().at(-1) || `${schedulePeriod}-01`;
+  const urgencyLimit = referenceDate ? new Date(`${referenceDate}T12:00:00`) : null;
+  if (urgencyLimit) urgencyLimit.setMonth(urgencyLimit.getMonth() + 2);
+  const urgencyLimitDays = urgencyLimit && referenceDate ? Math.ceil((urgencyLimit - new Date(`${referenceDate}T12:00:00`)) / 86400000) : 62;
+  const scheduleByPerson = new Map();
+  for (const item of currentSchedule) {
+    const key = `${item.company}-${item.cnpj}-${item.branch?.code}-${item.contract}`;
+    const existing = scheduleByPerson.get(key);
+    if (!existing || String(item.acquisitionStart).localeCompare(String(existing.acquisitionStart)) < 0) {
+      scheduleByPerson.set(key, { ...item, periodCount: (existing?.periodCount || 0) + 1 });
+    } else {
+      existing.periodCount += 1;
+    }
+  }
+  const vacationSchedule = Array.from(scheduleByPerson.values())
+    .map((item) => {
+      const deadline = item.deadline ? new Date(`${item.deadline}T12:00:00`) : null;
+      const reference = referenceDate ? new Date(`${referenceDate}T12:00:00`) : null;
+      const daysToDeadline = deadline && reference ? Math.ceil((deadline - reference) / 86400000) : null;
+      let urgency = "No prazo";
+      if (daysToDeadline !== null && daysToDeadline < 0) urgency = "Vencido";
+      else if (daysToDeadline !== null && daysToDeadline <= 30) urgency = "Até 30 dias";
+      else if (daysToDeadline !== null && daysToDeadline <= urgencyLimitDays) urgency = "Até 2 meses";
+      return { ...item, daysToDeadline, urgency };
+    })
+    .filter((item) => item.daysToDeadline !== null && item.daysToDeadline <= urgencyLimitDays && item.balanceDays > 0)
+    .sort((a, b) => {
+      const expired = Number(b.daysToDeadline < 0) - Number(a.daysToDeadline < 0);
+      if (expired) return expired;
+      const deadline = String(a.deadline).localeCompare(String(b.deadline));
+      if (deadline) return deadline;
+      return String(a.acquisitionStart).localeCompare(String(b.acquisitionStart));
+    });
+
+  const vacationsTakenGross = normalizedQuery
+    ? sum(vacations, (item) => vacationValue(item))
+    : sum(summaryRows, (item) => item.payroll?.vacationsTakenGross);
+  const resignationGross = sum(resignations, (item) => item.totals?.gross);
+  const provents = Math.max(0, payroll - resignationGross);
+  const grossTotal = provents + vacationsTakenGross + resignationGross;
+  const chargesTotal = sum(charges, (item) => item.value);
+
+  return { rows, records, employees, payroll, grossTotal, provents, vacationsTakenGross, resignationGross, chargesTotal, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop, vacationProvision, thirteenthProvision, provisionChart, vacationSchedule, schedulePeriod, scheduleReferenceDate: referenceDate };
 }
 
 function toggleSet(value, setter) {
@@ -1120,7 +1211,16 @@ function KpiStrip({ analytics }) {
         value={analytics.records.toLocaleString("pt-BR")}
         title={`${analytics.records.toLocaleString("pt-BR")} linhas de colaborador por competência no filtro atual`}
       />
-      <Kpi icon={BriefcaseBusiness} label="Folha bruta" value={compactCurrency(analytics.payroll)} title={currency(analytics.payroll)} />
+      <article className="kpi payroll-composition" title={`Folha bruta: ${currency(analytics.grossTotal)}`}>
+        <BriefcaseBusiness size={20} />
+        <div className="composition-values">
+          <div><span>Folha bruta</span><strong>{compactCurrency(analytics.grossTotal)}</strong></div>
+          <div><span>Proventos</span><strong>{compactCurrency(analytics.provents)}</strong></div>
+          <div><span>Férias gozadas</span><strong>{compactCurrency(analytics.vacationsTakenGross)}</strong></div>
+          <div><span>Rescisões</span><strong>{compactCurrency(analytics.resignationGross)}</strong></div>
+        </div>
+      </article>
+      <Kpi icon={Landmark} label="Encargos" value={compactCurrency(analytics.chargesTotal)} title={currency(analytics.chargesTotal)} />
       <Kpi icon={TrendingUp} label="Líquido" value={compactCurrency(analytics.net)} title={currency(analytics.net)} />
       <Kpi icon={CheckCircle2} label="Admissões" value={analytics.admissions.length.toLocaleString("pt-BR")} />
       <Kpi icon={ShieldAlert} label="Rescisões" value={analytics.resignations.length.toLocaleString("pt-BR")} />
@@ -1181,6 +1281,19 @@ function Overview({ analytics }) {
             <YAxis type="category" dataKey="branchCode" width={48} tick={{ fontSize: 11 }} />
             <Tooltip formatter={(value) => currency(value)} />
             <Bar dataKey="gross" name="Folha bruta" radius={[0, 4, 4, 0]} fill="#2563eb" />
+          </BarChart>
+        </Chart>
+      </Panel>
+      <Panel title="Provisões atuais" icon={Banknote} wide subtitle="Competência mais recente disponível para cada relatório no filtro atual.">
+        <Chart>
+          <BarChart data={analytics.provisionChart} margin={{ top: 16, right: 12, left: 8, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" />
+            <YAxis tickFormatter={(value) => compactCurrency(value).replace("R$ ", "")} />
+            <Tooltip formatter={(value) => currency(value)} />
+            <Bar dataKey="value" name="Saldo atual" radius={[4, 4, 0, 0]} fill="#0f766e">
+              <LabelList dataKey="value" position="top" formatter={compactCurrency} fill="#1C0B01" fontSize={11} />
+            </Bar>
           </BarChart>
         </Chart>
       </Panel>
@@ -1675,16 +1788,14 @@ function Charges({ analytics }) {
       </Panel>
       <Panel title="Encargos por competência" icon={CalendarDays} wide>
         <DataTable
-          columns={["Mês", "INSS colab.", "INSS empresa", "FGTS", "RAT x FAP", "Terceiros", "GPS", "IRRF"]}
+          columns={["Mês", "INSS empresa", "FGTS", "RAT x FAP", "Terceiros", "Total patronal"]}
           rows={analytics.byMonth.map((item) => [
             item.label,
-            currency(item.charges.inss_employee),
             currency(item.charges.inss_company),
             currency(item.charges.fgts),
             currency(item.charges.rat_fap),
             currency(item.charges.third_parties),
-            currency(item.charges.gps_total),
-            currency(item.charges.irrf),
+            currency(item.charges.inss_company + item.charges.fgts + item.charges.rat_fap + item.charges.third_parties),
           ])}
         />
       </Panel>
@@ -1730,6 +1841,78 @@ function Benefits({ analytics }) {
   );
 }
 
+function ProvisionBlock({ title, provision }) {
+  return (
+    <Panel title={title} icon={Banknote} subtitle={provision.period ? `Competência atual: ${periodLabel(provision.period)}` : "Relatório ainda não importado."}>
+      <div className="provision-metrics">
+        <div><span>Saldo atual</span><strong>{currency(provision.currentBalance)}</strong></div>
+        <div><span>INSS</span><strong>{currency(provision.inss)}</strong></div>
+        <div><span>FGTS</span><strong>{currency(provision.fgts)}</strong></div>
+        <div className="total"><span>Total da provisão</span><strong>{currency(provision.total)}</strong></div>
+      </div>
+    </Panel>
+  );
+}
+
+function Provisions({ analytics }) {
+  return (
+    <section className="grid two">
+      <ProvisionBlock title="Provisão de férias" provision={analytics.vacationProvision} />
+      <ProvisionBlock title="Provisão de 13º salário" provision={analytics.thirteenthProvision} />
+      <Panel title="Composição das provisões" icon={TrendingUp} wide>
+        <Chart>
+          <BarChart data={analytics.provisionChart}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="name" />
+            <YAxis tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
+            <Tooltip formatter={(value) => currency(value)} />
+            <Bar dataKey="value" name="Valor" fill="#0f766e" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </Chart>
+      </Panel>
+      <Panel title="Saldos por colaborador" icon={Users} wide>
+        <DataTable
+          columns={["Colaborador", "Contrato", "Empresa", "CNPJ", "Estabelecimento", "Férias", "INSS", "FGTS", "Total"]}
+          rows={[...analytics.vacationProvision.records, ...analytics.thirteenthProvision.records]
+            .sort((a, b) => b.total - a.total)
+            .map((item) => [item.name, item.contract, item.company, item.cnpj, item.branch?.name, currency(item.currentBalance), currency(item.inss), currency(item.fgts), currency(item.total)])}
+        />
+      </Panel>
+    </section>
+  );
+}
+
+function VacationSchedule({ analytics }) {
+  return (
+    <section className="grid two">
+      <Panel
+        title="Programação de férias"
+        icon={CalendarDays}
+        wide
+        subtitle={`Posição ${shortDate(analytics.scheduleReferenceDate)}; períodos vencidos ou com data-limite nos próximos dois meses. Um registro principal por colaborador.`}
+      >
+        <DataTable
+          columns={["Colaborador", "Matrícula", "Empresa", "CNPJ", "Estabelecimento", "Período aquisitivo", "Data-limite", "Total de dias", "Já gozados", "Saldo a gozar", "Situação"]}
+          rows={analytics.vacationSchedule.map((item) => [
+            item.name,
+            item.contract,
+            item.company,
+            item.cnpj,
+            item.branch?.name,
+            `${shortDate(item.acquisitionStart)} a ${shortDate(item.acquisitionEnd)}${item.periodCount > 1 ? ` (+${item.periodCount - 1} período)` : ""}`,
+            shortDate(item.deadline),
+            item.totalDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 }),
+            item.daysTaken.toLocaleString("pt-BR", { maximumFractionDigits: 1 }),
+            `${item.balanceDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias`,
+            item.urgency,
+          ])}
+          empty="Nenhum período vencido ou próximo do limite no filtro atual."
+        />
+      </Panel>
+    </section>
+  );
+}
+
 const rubricFallbackDescriptions = {
   "00473": "FGTS sobre Salários",
   "00474": "FGTS sobre as Férias",
@@ -1759,14 +1942,6 @@ function rubricCatalogSections(allRows) {
   const events = allRows.flatMap((item) => item.events || []);
   const codesWhere = (predicate) => [...new Set(events.filter(predicate).map((event) => event.code))].sort();
   const loanCodes = codesWhere(validLoanEvent);
-  const inssEmployeeCodes = codesWhere((event) => {
-    const description = event.description.toLowerCase();
-    return description.includes("inss sobre") || description.includes("inss s/");
-  });
-  const irrfCodes = codesWhere((event) => {
-    const description = event.description.toLowerCase();
-    return description.includes("i.r.f") || description.includes("irrf") || description.includes("irf sobre");
-  });
 
   return [
     {
@@ -1835,11 +2010,8 @@ function rubricCatalogSections(allRows) {
       items: [
         { title: "FGTS", type: "included", codes: ["00473", "00474", "00475", "00476", "00478"], rule: "Soma oficial do resumo da competência." },
         { title: "INSS empresa", type: "included", codes: ["00849", "00852", "00855"], rule: "Soma oficial do resumo da competência." },
-        { title: "INSS colaborador", type: "rule", codes: inssEmployeeCodes, rule: "Eventos cuja descrição identifica INSS sobre folha, férias ou 13º." },
         { title: "RAT x FAP", type: "rule", codes: ["00850", "00853"], rule: "Linhas identificadas como RATxFAP no demonstrativo." },
         { title: "Terceiros", type: "rule", codes: ["00851", "00854"], rule: "Linhas Terceiros Empresa / Terceiros Parte Empresa." },
-        { title: "Total GPS", type: "rule", codes: ["00852", "00855", "00856"], rule: "Linhas identificadas como TOTAL GPS no detalhe do colaborador." },
-        { title: "IRRF", type: "rule", codes: irrfCodes, rule: "Eventos cuja descrição identifica I.R.F., IRF ou IRRF." },
       ],
     },
     {
@@ -1957,16 +2129,14 @@ function formatDateTime(value) {
 
 function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeriod, isAdmin }) {
   const quality = dataset.quality || {};
-  const reconciliationRows = (quality.reconciliation || []).map((item) => [
-    item.sourceFile,
-    item.sourcePage,
-    item.matched ? "Batido" : "Divergente",
-    currency(item.pdf.gross),
-    currency(item.app.gross),
-    currency(item.pdf.net),
-    currency(item.app.net),
-    `${currency(item.difference.gross)} / ${currency(item.difference.net)}`,
-  ]);
+  const reportNames = { payroll: "Folha", vacation_provision: "Provisão férias", thirteenth_provision: "Provisão 13º", vacation_schedule: "Programação férias" };
+  const reconciliationText = (values, type) => type === "payroll"
+    ? `Bruto ${currency(values?.gross)} | Líquido ${currency(values?.net)}`
+    : `Saldo ${currency(values?.currentBalance)} | INSS ${currency(values?.inss)} | FGTS ${currency(values?.fgts)} | Total ${currency(values?.total)}`;
+  const reconciliationRows = (quality.reconciliation || []).map((item) => {
+    const type = item.reportType || "payroll";
+    return [reportNames[type] || type, item.sourceFile, item.sourcePage, item.matched ? "Batido" : "Divergente", reconciliationText(item.pdf, type), reconciliationText(item.app, type), reconciliationText(item.difference, type)];
+  });
   const unclassifiedRows = (quality.unclassifiedEvents || []).map((item) => [
     item.code || "-",
     item.description || "-",
@@ -1975,8 +2145,8 @@ function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeri
   ]);
   const diagnosticRows = (quality.diagnostics || []).map((item) => [
     item.sourceFile || item.file || "-",
-    item.page || "-",
-    item.branch || "-",
+    item.sourcePage || item.page || "-",
+    item.field || item.branch || "-",
     item.message || item.detail || String(item),
   ]);
   const historyRows = (importHistory || []).map((entry) => [
@@ -1995,7 +2165,7 @@ function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeri
       <Panel title="Auditoria da base atual" icon={ClipboardCheck} wide>
         <div className="metric-inline">
           <div><span>PDFs ativos</span><strong>{dataset.sources.length.toLocaleString("pt-BR")}</strong><small>{dataset.periods.map(periodLabel).join(", ")}</small></div>
-          <div><span>Registros extraídos</span><strong>{quality.employeeRecords.toLocaleString("pt-BR")}</strong><small>{dataset.branches.length.toLocaleString("pt-BR")} filiais identificadas</small></div>
+          <div><span>Registros extraídos</span><strong>{((quality.employeeRecords || 0) + (dataset.provisions?.length || 0) + (dataset.vacationSchedule?.length || 0)).toLocaleString("pt-BR")}</strong><small>{dataset.branches.length.toLocaleString("pt-BR")} estabelecimentos identificados</small></div>
           <div><span>Conferência</span><strong>{quality.reconciliationMatched ? "Batido" : "Divergente"}</strong><small>{quality.reconciliation?.filter((item) => item.matched).length || 0}/{quality.reconciliation?.length || 0} arquivos reconciliados</small></div>
           <div><span>Verbas novas</span><strong>{(quality.unclassifiedEventCount || 0).toLocaleString("pt-BR")}</strong><small>eventos não classificados</small></div>
           <div><span>Diagnósticos</span><strong>{(quality.diagnosticCount || 0).toLocaleString("pt-BR")}</strong><small>falhas ou avisos do parser</small></div>
@@ -2016,10 +2186,25 @@ function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeri
       </Panel>
       <Panel title="Conferência com os PDFs" icon={CheckCircle2} wide>
         <DataTable
-          columns={["Arquivo", "Página", "Status", "Bruto PDF", "Bruto App", "Líquido PDF", "Líquido App", "Diferença"]}
+          columns={["Tipo", "Arquivo", "Página", "Status", "PDF", "Aplicação", "Diferença"]}
           rows={reconciliationRows}
           empty="Nenhum arquivo reconciliado ainda."
           limit={120}
+        />
+      </Panel>
+      <Panel title="Relatórios ativos" icon={BookOpenCheck} wide>
+        <DataTable
+          columns={["Tipo", "Competência", "Empresa", "CNPJs", "Estabelecimentos", "Arquivo", "Importado em", "Status"]}
+          rows={(dataset.reportImports || []).map((item) => [
+            reportNames[item.reportType] || item.reportType,
+            periodLabel(item.period?.key),
+            item.company || "-",
+            (item.cnpjs || []).length || "-",
+            (item.branchCodes || []).length || "-",
+            item.sourceFile,
+            item.importedAt ? formatDateTime(item.importedAt) : "Base anterior",
+            item.status === "read" ? "Lido" : item.status,
+          ])}
         />
       </Panel>
       <Panel title="Histórico de importações manuais" icon={FileUp} wide>
@@ -2234,6 +2419,7 @@ function importSummaryFromDataset(payload, files) {
   const rows = payload.employees || [];
   return {
     files: files.map((file) => file.name),
+    reports: payload.reportImports || [],
     periods: payload.periods || [],
     branches: payload.branches || [],
     branchCount: payload.branches?.length || 0,
@@ -2252,7 +2438,7 @@ function ImportProgressModal({ state, onClose }) {
   const done = state.status === "done";
   const failed = state.status === "error";
   const summary = state.summary || {};
-  const steps = ["Enviando PDFs", "Extraindo folha", "Conferindo totais", "Salvando histórico"];
+  const steps = ["Enviando PDFs", "Identificando relatórios", "Extraindo dados", "Conferindo totais", "Salvando histórico"];
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -2261,14 +2447,14 @@ function ImportProgressModal({ state, onClose }) {
           {failed ? <AlertTriangle size={24} /> : done ? <CheckCircle2 size={24} /> : <RefreshCw size={24} />}
         </div>
         <div className="import-copy">
-          <span>{state.replaceExisting ? "Substituição de competência" : "Importação de folha"}</span>
+          <span>{state.replaceExisting ? "Substituição de relatório" : "Importação de relatórios"}</span>
           <h2 id="import-title">
             {running && "Importando e conferindo PDFs"}
             {done && "Importação concluída"}
             {failed && "Importação não concluída"}
           </h2>
           <p>
-            {running && "Mantenha esta janela aberta enquanto o sistema lê a folha, valida os totais e salva o histórico."}
+            {running && "Mantenha esta janela aberta enquanto o sistema identifica cada relatório, valida os totais e salva o histórico."}
             {done && "Os dados foram incorporados à base e já estão disponíveis nos filtros do painel."}
             {failed && state.error}
           </p>
@@ -2293,9 +2479,10 @@ function ImportProgressModal({ state, onClose }) {
 
         {done && (
           <div className="import-summary-grid">
+            <div><span>Tipos reconhecidos</span><strong>{(summary.reports || []).map((item) => ({ payroll: "Folha", vacation_provision: "Provisão férias", thirteenth_provision: "Provisão 13º", vacation_schedule: "Programação férias" }[item.reportType] || item.reportType)).join(", ") || "Folha"}</strong></div>
             <div><span>Períodos</span><strong>{(summary.periods || []).map(periodLabel).join(", ") || "-"}</strong></div>
             <div><span>Filiais</span><strong>{summary.branchCount || summary.branches?.length || 0}</strong></div>
-            <div><span>Registros</span><strong>{Number(summary.employeeRecords || 0).toLocaleString("pt-BR")}</strong></div>
+            <div><span>Registros</span><strong>{Number(summary.reportRecords || summary.employeeRecords || 0).toLocaleString("pt-BR")}</strong></div>
             <div><span>Folha bruta</span><strong>{currency(summary.gross)}</strong></div>
             <div><span>Líquido</span><strong>{currency(summary.net)}</strong></div>
             <div><span>Admissões</span><strong>{summary.admissions || 0}</strong></div>
@@ -2369,9 +2556,9 @@ function branchRankingExportRows(rows) {
   );
 }
 
-async function exportWorkbook(rows, dataset) {
+async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
   const { default: ExcelJS } = await import("exceljs");
-  const analytics = buildAnalytics(rows, dataset);
+  const analytics = filteredAnalytics || buildAnalytics(rows, dataset);
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "BI Florybal Chocolates";
   workbook.created = new Date();
@@ -2388,7 +2575,11 @@ async function exportWorkbook(rows, dataset) {
     [
       { metric: "Colaboradores unicos", value: analytics.employees, type: "number" },
       { metric: "Colaboradores x mes", value: analytics.records, type: "number" },
-      { metric: "Folha bruta", value: analytics.payroll, type: "currency" },
+      { metric: "Folha bruta", value: analytics.grossTotal, type: "currency" },
+      { metric: "Proventos", value: analytics.provents, type: "currency" },
+      { metric: "Ferias gozadas", value: analytics.vacationsTakenGross, type: "currency" },
+      { metric: "Rescisoes - bruto", value: analytics.resignationGross, type: "currency" },
+      { metric: "Encargos patronais", value: analytics.chargesTotal, type: "currency" },
       { metric: "Descontos", value: analytics.discounts, type: "currency" },
       { metric: "Liquido", value: analytics.net, type: "currency" },
       { metric: "Admissoes", value: analytics.admissions.length, type: "number" },
@@ -2631,6 +2822,72 @@ async function exportWorkbook(rows, dataset) {
       loansValue: loanValue(item),
     })),
     { currencyKeys: new Set(["loansValue"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Provisoes",
+    [
+      { header: "Tipo", key: "type", width: 24 },
+      { header: "Competencia", key: "period", width: 13 },
+      { header: "Empresa", key: "company", width: 28 },
+      { header: "CNPJ", key: "cnpj", width: 20 },
+      { header: "Estabelecimento", key: "branch", width: 30 },
+      { header: "Contrato", key: "contract", width: 12 },
+      { header: "Colaborador", key: "name", width: 32 },
+      { header: "Saldo atual", key: "currentBalance", width: 17 },
+      { header: "INSS", key: "inss", width: 17 },
+      { header: "FGTS", key: "fgts", width: 17 },
+      { header: "Total", key: "total", width: 17 },
+    ],
+    [...analytics.vacationProvision.records, ...analytics.thirteenthProvision.records].map((item) => ({
+      type: item.reportType === "vacation_provision" ? "Provisao de ferias" : "Provisao de 13o",
+      period: item.period?.label,
+      company: item.company,
+      cnpj: item.cnpj,
+      branch: item.branch?.label,
+      contract: item.contract,
+      name: item.name,
+      currentBalance: item.currentBalance,
+      inss: item.inss,
+      fgts: item.fgts,
+      total: item.total,
+    })),
+    { currencyKeys: new Set(["currentBalance", "inss", "fgts", "total"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Programacao Ferias",
+    [
+      { header: "Situacao", key: "urgency", width: 16 },
+      { header: "Empresa", key: "company", width: 28 },
+      { header: "CNPJ", key: "cnpj", width: 20 },
+      { header: "Estabelecimento", key: "branch", width: 30 },
+      { header: "Contrato", key: "contract", width: 12 },
+      { header: "Colaborador", key: "name", width: 32 },
+      { header: "Periodo de", key: "acquisitionStart", width: 13 },
+      { header: "Periodo ate", key: "acquisitionEnd", width: 13 },
+      { header: "Data limite", key: "deadline", width: 13 },
+      { header: "Total dias", key: "totalDays", width: 12 },
+      { header: "Dias gozados", key: "daysTaken", width: 14 },
+      { header: "Saldo a gozar", key: "balanceDays", width: 14 },
+    ],
+    analytics.vacationSchedule.map((item) => ({
+      urgency: item.urgency,
+      company: item.company,
+      cnpj: item.cnpj,
+      branch: item.branch?.label,
+      contract: item.contract,
+      name: item.name,
+      acquisitionStart: excelDate(item.acquisitionStart),
+      acquisitionEnd: excelDate(item.acquisitionEnd),
+      deadline: excelDate(item.deadline),
+      totalDays: item.totalDays,
+      daysTaken: item.daysTaken,
+      balanceDays: item.balanceDays,
+    })),
+    { dateKeys: new Set(["acquisitionStart", "acquisitionEnd", "deadline"]) },
   );
 
   addSheet(workbook, "Encargos", [
