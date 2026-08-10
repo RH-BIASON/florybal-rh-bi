@@ -27,6 +27,45 @@ function sortBranches(branches) {
   return uniqBy(branches, (branch) => branch?.code).sort((a, b) => String(a.code).localeCompare(String(b.code)));
 }
 
+function previousMonthPeriod(positionDate) {
+  const match = String(positionDate || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const position = new Date(`${positionDate}T12:00:00`);
+  position.setMonth(position.getMonth() - 1);
+  const key = `${position.getFullYear()}-${String(position.getMonth() + 1).padStart(2, "0")}`;
+  return {
+    key,
+    label: `${String(position.getMonth() + 1).padStart(2, "0")}/${position.getFullYear()}`,
+    start: `${key}-01`,
+    end: positionDate,
+    positionDate,
+  };
+}
+
+function normalizedSchedulePeriod(period) {
+  const positionDate = period?.positionDate || period?.end;
+  if (!positionDate || period?.key !== String(positionDate).slice(0, 7)) return period;
+  return previousMonthPeriod(positionDate) || period;
+}
+
+export function normalizeVacationScheduleCompetence(dataset) {
+  if (!dataset) return dataset;
+  const vacationSchedule = (dataset.vacationSchedule || []).map((item) => ({
+    ...item,
+    period: normalizedSchedulePeriod(item.period),
+  }));
+  const reportImports = (dataset.reportImports || []).map((item) => item.reportType === "vacation_schedule"
+    ? { ...item, period: normalizedSchedulePeriod(item.period) }
+    : item);
+  const allRecords = [...(dataset.employees || []), ...(dataset.provisions || []), ...vacationSchedule];
+  return {
+    ...dataset,
+    vacationSchedule,
+    reportImports,
+    periods: sortPeriods(allRecords.map((item) => item.period?.key).filter(Boolean)),
+  };
+}
+
 function keepOldQualityItems(oldItems, newPeriods, periodBySource) {
   return (oldItems || []).filter((item) => {
     const periodKey = item?.periodKey || item?.period?.key || periodBySource.get(item?.sourceFile);
@@ -102,6 +141,8 @@ function rebuildQuality(baseDataset, importedDataset, employees, newPeriods) {
 }
 
 export function mergePayrollDatasets(baseDataset, importedDataset) {
+  baseDataset = normalizeVacationScheduleCompetence(baseDataset);
+  importedDataset = normalizeVacationScheduleCompetence(importedDataset);
   if (!baseDataset) return importedDataset;
   const baseReports = baseDataset.reportImports?.length
     ? baseDataset.reportImports

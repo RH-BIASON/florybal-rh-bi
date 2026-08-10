@@ -4,6 +4,7 @@ import {
   BriefcaseBusiness,
   BookOpenCheck,
   CalendarDays,
+  ChevronDown,
   CheckCircle2,
   ClipboardCheck,
   Download,
@@ -234,6 +235,7 @@ function App() {
   const [view, setView] = useState("overview");
   const [replacePrompt, setReplacePrompt] = useState(null);
   const [importModal, setImportModal] = useState(null);
+  const [pendingImport, setPendingImport] = useState(null);
   const [removingPeriod, setRemovingPeriod] = useState("");
 
   const isAdmin = currentUser?.role === "admin";
@@ -275,6 +277,10 @@ function App() {
   useEffect(() => {
     initializeAuth();
   }, []);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [view]);
 
   async function initializeAuth() {
     setAuthLoading(true);
@@ -342,7 +348,16 @@ function App() {
     setSelectedBranches(new Set(payload.branches.map((branch) => branch.code)));
   }
 
-  async function importFiles(files, options = {}) {
+  function beginImportProgress(status, files, start, limit) {
+    let progress = start;
+    setImportModal({ status, files: files.map((file) => file.name), progress });
+    return window.setInterval(() => {
+      progress = Math.min(limit, progress + Math.max(1, Math.round((limit - progress) / 7)));
+      setImportModal((current) => current && current.status === status ? { ...current, progress } : current);
+    }, 650);
+  }
+
+  async function importFiles(files) {
     if (!files.length) return;
     const pdfs = files.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
     if (!pdfs.length) {
@@ -351,32 +366,29 @@ function App() {
     }
     const form = new FormData();
     pdfs.forEach((file) => form.append("pdfs", file));
-    if (options.replaceExisting) form.append("replaceExisting", "true");
+    form.append("previewOnly", "true");
     setUploading(true);
     setError("");
-    setImportModal({
-      status: "running",
-      files: pdfs.map((file) => file.name),
-      replaceExisting: Boolean(options.replaceExisting),
-      startedAt: new Date().toISOString(),
-    });
+    setPendingImport(null);
+    const progressTimer = beginImportProgress("running", pdfs, 6, 92);
     try {
       const response = await apiRequest("/api/upload", { method: "POST", body: form });
       const result = await response.json();
-      if (response.status === 409 && result.code === "PERIOD_EXISTS") {
-        setImportModal(null);
-        setReplacePrompt({ periods: result.periods || [], reports: result.reports || [], files: pdfs });
-        return;
-      }
       if (!response.ok) throw new Error(result.error || "Falha ao importar PDFs");
-      const payload = result.dataset || result;
-      applyDataset(payload);
-      await refreshImportHistory();
+      const pending = {
+        files: pdfs,
+        summary: result.importSummary || {},
+        hasDuplicates: Boolean(result.hasDuplicates),
+        duplicatePeriods: result.duplicatePeriods || [],
+        duplicateReports: result.duplicateReports || [],
+      };
+      setPendingImport(pending);
       setImportModal({
-        status: "done",
+        status: "review",
         files: pdfs.map((file) => file.name),
-        summary: result.importSummary || importSummaryFromDataset(payload, pdfs),
-        replaceExisting: Boolean(options.replaceExisting),
+        summary: pending.summary,
+        hasDuplicates: pending.hasDuplicates,
+        progress: 100,
       });
     } catch (err) {
       setError(err.message);
@@ -384,17 +396,63 @@ function App() {
         status: "error",
         files: pdfs.map((file) => file.name),
         error: err.message,
-        replaceExisting: Boolean(options.replaceExisting),
+        progress: 100,
       });
     } finally {
+      window.clearInterval(progressTimer);
+      setUploading(false);
+    }
+  }
+
+  function requestImportConfirmation() {
+    if (!pendingImport) return;
+    if (pendingImport.hasDuplicates) {
+      setImportModal(null);
+      setReplacePrompt({
+        periods: pendingImport.duplicatePeriods,
+        reports: pendingImport.duplicateReports,
+      });
+      return;
+    }
+    commitPendingImport(false);
+  }
+
+  async function commitPendingImport(replaceExisting) {
+    const files = pendingImport?.files || [];
+    if (!files.length) return;
+    const form = new FormData();
+    files.forEach((file) => form.append("pdfs", file));
+    if (replaceExisting) form.append("replaceExisting", "true");
+    setUploading(true);
+    setError("");
+    const progressTimer = beginImportProgress("saving", files, 48, 94);
+    try {
+      const response = await apiRequest("/api/upload", { method: "POST", body: form });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Falha ao salvar a importaÃ§Ã£o");
+      const payload = result.dataset || result;
+      applyDataset(payload);
+      await refreshImportHistory();
+      setImportModal({
+        status: "done",
+        files: files.map((file) => file.name),
+        summary: result.importSummary || importSummaryFromDataset(payload, files),
+        replaceExisting,
+        progress: 100,
+      });
+      setPendingImport(null);
+    } catch (err) {
+      setError(err.message);
+      setImportModal({ status: "error", files: files.map((file) => file.name), error: err.message, progress: 100 });
+    } finally {
+      window.clearInterval(progressTimer);
       setUploading(false);
     }
   }
 
   async function confirmReplacePeriods() {
-    const files = replacePrompt?.files || [];
     setReplacePrompt(null);
-    await importFiles(files, { replaceExisting: true });
+    await commitPendingImport(true);
   }
 
   async function removePeriod(periodKey) {
@@ -479,8 +537,7 @@ function App() {
             ["provisions", Banknote, "Provisões"],
             ["vacation-schedule", CalendarDays, "Programação de férias"],
             ["rubrics", BookOpenCheck, "Rubricas utilizadas"],
-            ["audit", ClipboardCheck, "Auditoria"],
-            ...(isAdmin ? [["access", UserPlus, "Acessos"]] : []),
+            ...(isAdmin ? [["imports", FileUp, "Importação"], ["access", UserPlus, "Acessos"]] : []),
           ].map(([key, Icon, label]) => (
             <button key={key} className={view === key ? "active" : ""} onClick={() => setView(key)}>
               <Icon size={18} />
@@ -514,25 +571,34 @@ function App() {
         </header>
 
         {error && <div className="notice danger">{error}</div>}
-        {importModal && <ImportProgressModal state={importModal} onClose={() => setImportModal(null)} />}
+        {importModal && (
+          <ImportProgressModal
+            state={importModal}
+            onClose={() => {
+              setImportModal(null);
+              if (importModal.status === "review") setPendingImport(null);
+            }}
+            onConfirm={requestImportConfirmation}
+          />
+        )}
         {replacePrompt && (
           <ConfirmDialog
             title="Substituir relatório existente?"
-            message={`Já existe importação do mesmo tipo na competência ${replacePrompt.periods.map(periodLabel).join(", ")}. Deseja substituir somente esse relatório e manter os demais tipos e períodos salvos?`}
-            confirmLabel="Substituir"
+            message={`Já existe um relatório do mesmo tipo na competência ${replacePrompt.periods.map(periodLabel).join(", ")}. Tem certeza de que deseja substituí-lo? Os demais tipos e competências serão preservados.`}
+            confirmLabel="Sim, substituir"
             cancelLabel="Cancelar"
             onConfirm={confirmReplacePeriods}
             onCancel={() => setReplacePrompt(null)}
           />
         )}
 
-        <section className="control-surface">
-          <div className="filter-group periods">
-            <div className="filter-label">
-              <CalendarDays size={16} />
-              Período
-              <span className="filter-count">{selectedPeriods.size || periods.length} de {periods.length}</span>
-            </div>
+        <section className="control-surface compact-controls">
+          <FilterPopover
+            icon={CalendarDays}
+            label="Período"
+            count={`${selectedPeriods.size || periods.length} de ${periods.length}`}
+            summary={selectedPeriods.size === periods.length ? "Todos os meses" : [...selectedPeriods].sort().map(periodLabel).join(", ") || "Nenhum mês"}
+          >
             <div className="segmented">
               <button className={periodMode === "single" ? "active" : ""} onClick={() => {
                 setPeriodMode("single");
@@ -556,14 +622,14 @@ function App() {
                 </ToggleChip>
               ))}
             </div>
-          </div>
+          </FilterPopover>
 
-          <div className="filter-group branches">
-            <div className="filter-label">
-              <Filter size={16} />
-              Empresa / CNPJ / estabelecimento
-              <span className="filter-count">{selectedBranches.size || branches.length} de {branches.length}</span>
-            </div>
+          <FilterPopover
+            icon={Filter}
+            label="Empresa / CNPJ / estabelecimento"
+            count={`${selectedBranches.size || branches.length} de ${branches.length}`}
+            summary={selectedBranches.size === branches.length ? "Todos os estabelecimentos" : [...selectedBranches].sort().join(", ") || "Nenhum estabelecimento"}
+          >
             <div className="quick-row compact">
               <button onClick={() => setSelectedBranches(new Set(branches.map((branch) => branch.code)))}>Todas</button>
               <button onClick={() => setSelectedBranches(new Set(["000"]))}>Matriz</button>
@@ -581,34 +647,12 @@ function App() {
                 </button>
               ))}
             </div>
-          </div>
+          </FilterPopover>
 
-          <div className="utility-stack">
-            <label className="search">
-              <Search size={17} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar colaborador, contrato ou cargo" />
-            </label>
-            {isAdmin ? (
-              <label
-                className={dragActive ? "dropzone active" : "dropzone"}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDragActive(true);
-                }}
-                onDragLeave={() => setDragActive(false)}
-                onDrop={handleDrop}
-              >
-                <FileUp size={18} />
-                <span>{uploading ? "Importando e conferindo..." : "Arraste PDFs aqui"}</span>
-                <input type="file" accept="application/pdf" multiple onChange={handleUpload} disabled={uploading} />
-              </label>
-            ) : (
-              <div className="readonly-note">
-                <FileUp size={18} />
-                <span>Importação disponível para administradores.</span>
-              </div>
-            )}
-          </div>
+          <label className="search">
+            <Search size={17} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar colaborador, contrato ou cargo" />
+          </label>
         </section>
 
         <KpiStrip analytics={analytics} />
@@ -625,7 +669,20 @@ function App() {
         {view === "provisions" && <Provisions analytics={analytics} />}
         {view === "vacation-schedule" && <VacationSchedule analytics={analytics} />}
         {view === "rubrics" && <RubricsCatalog dataset={dataset} rows={filtered} />}
-        {view === "audit" && <Audit dataset={dataset} analytics={analytics} importHistory={importHistory} onRemovePeriod={removePeriod} removingPeriod={removingPeriod} isAdmin={isAdmin} />}
+        {view === "imports" && isAdmin && (
+          <ImportCenter
+            dataset={dataset}
+            analytics={analytics}
+            importHistory={importHistory}
+            onRemovePeriod={removePeriod}
+            removingPeriod={removingPeriod}
+            onUpload={handleUpload}
+            onDrop={handleDrop}
+            dragActive={dragActive}
+            setDragActive={setDragActive}
+            uploading={uploading}
+          />
+        )}
         {view === "access" && isAdmin && <AccessPanel apiRequest={apiRequest} currentUser={currentUser} />}
       </section>
     </main>
@@ -1119,6 +1176,29 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
 
   const vacationProvision = currentProvision("vacation_provision");
   const thirteenthProvision = currentProvision("thirteenth_provision");
+
+  function provisionRankingValues(provision) {
+    const totals = new Map();
+    if (!provision.period) return totals;
+    const summaryRows = !normalizedQuery
+      ? (dataset.provisionSummaries || []).filter((item) => item.reportType === provision.reportType && !item.isGrandTotal && item.period?.key === provision.period && branchAllowed(item))
+      : [];
+    const valueRows = summaryRows.length ? summaryRows : provision.records;
+    for (const item of valueRows) {
+      const code = item.branch?.code;
+      if (!code) continue;
+      totals.set(code, (totals.get(code) || 0) + Number(item.total || 0));
+    }
+    return totals;
+  }
+
+  const vacationProvisionByBranch = provisionRankingValues(vacationProvision);
+  const thirteenthProvisionByBranch = provisionRankingValues(thirteenthProvision);
+  const branchRankingWithProvisions = branchRanking.map((item) => ({
+    ...item,
+    vacationProvision: Number((vacationProvisionByBranch.get(item.branchCode) || 0).toFixed(2)),
+    thirteenthProvision: Number((thirteenthProvisionByBranch.get(item.branchCode) || 0).toFixed(2)),
+  }));
   const provisionChart = [
     { name: "Férias", value: vacationProvision.currentBalance },
     { name: "13º salário", value: thirteenthProvision.currentBalance },
@@ -1148,16 +1228,16 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
       const deadline = item.deadline ? new Date(`${item.deadline}T12:00:00`) : null;
       const reference = referenceDate ? new Date(`${referenceDate}T12:00:00`) : null;
       const daysToDeadline = deadline && reference ? Math.ceil((deadline - reference) / 86400000) : null;
-      let urgency = "No prazo";
-      if (daysToDeadline !== null && daysToDeadline < 0) urgency = "Vencido";
-      else if (daysToDeadline !== null && daysToDeadline <= 30) urgency = "Até 30 dias";
-      else if (daysToDeadline !== null && daysToDeadline <= urgencyLimitDays) urgency = "Até 2 meses";
+      let urgency = item.balanceDays > 0 ? "No prazo" : "Sem saldo";
+      if (item.balanceDays > 0 && daysToDeadline !== null && daysToDeadline < 0) urgency = "Vencido";
+      else if (item.balanceDays > 0 && daysToDeadline !== null && daysToDeadline <= 30) urgency = "Até 30 dias";
+      else if (item.balanceDays > 0 && daysToDeadline !== null && daysToDeadline <= urgencyLimitDays) urgency = "Até 2 meses";
       return { ...item, daysToDeadline, urgency };
     })
-    .filter((item) => item.daysToDeadline !== null && item.daysToDeadline <= urgencyLimitDays && item.balanceDays > 0)
     .sort((a, b) => {
-      const expired = Number(b.daysToDeadline < 0) - Number(a.daysToDeadline < 0);
-      if (expired) return expired;
+      const priority = { Vencido: 0, "Até 30 dias": 1, "Até 2 meses": 2, "No prazo": 3, "Sem saldo": 4 };
+      const urgencyOrder = (priority[a.urgency] ?? 5) - (priority[b.urgency] ?? 5);
+      if (urgencyOrder) return urgencyOrder;
       const deadline = String(a.deadline).localeCompare(String(b.deadline));
       if (deadline) return deadline;
       return String(a.acquisitionStart).localeCompare(String(b.acquisitionStart));
@@ -1171,7 +1251,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
   const grossTotal = provents + vacationsTakenGross + resignationGross;
   const chargesTotal = sum(charges, (item) => item.value);
 
-  return { rows, records, employees, payroll, grossTotal, provents, vacationsTakenGross, resignationGross, chargesTotal, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop, vacationProvision, thirteenthProvision, provisionChart, vacationSchedule, schedulePeriod, scheduleReferenceDate: referenceDate };
+  return { rows, records, employees, payroll, grossTotal, provents, vacationsTakenGross, resignationGross, chargesTotal, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking: branchRankingWithProvisions, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop, vacationProvision, thirteenthProvision, provisionChart, vacationSchedule, schedulePeriod, scheduleReferenceDate: referenceDate };
 }
 
 function toggleSet(value, setter) {
@@ -1181,6 +1261,23 @@ function toggleSet(value, setter) {
     else next.add(value);
     return next;
   });
+}
+
+function FilterPopover({ icon: Icon, label, count, summary, children }) {
+  return (
+    <details className="filter-popover">
+      <summary>
+        <Icon size={17} />
+        <span>
+          <strong>{label}</strong>
+          <small>{summary}</small>
+        </span>
+        <b>{count}</b>
+        <ChevronDown size={16} className="filter-chevron" />
+      </summary>
+      <div className="filter-popover-content">{children}</div>
+    </details>
+  );
 }
 
 function QuickRange({ label, count, periods, setSelectedPeriods, setPeriodMode }) {
@@ -1216,15 +1313,9 @@ function KpiStrip({ analytics }) {
         value={analytics.records.toLocaleString("pt-BR")}
         title={`${analytics.records.toLocaleString("pt-BR")} linhas de colaborador por competência no filtro atual`}
       />
-      <article className="kpi payroll-composition" title={`Folha bruta: ${currency(analytics.grossTotal)}`}>
-        <BriefcaseBusiness size={20} />
-        <div className="composition-values">
-          <div><span>Folha bruta</span><strong>{compactCurrency(analytics.grossTotal)}</strong></div>
-          <div><span>Proventos</span><strong>{compactCurrency(analytics.provents)}</strong></div>
-          <div><span>Férias gozadas</span><strong>{compactCurrency(analytics.vacationsTakenGross)}</strong></div>
-          <div><span>Rescisões</span><strong>{compactCurrency(analytics.resignationGross)}</strong></div>
-        </div>
-      </article>
+      <Kpi icon={BriefcaseBusiness} label="Folha bruta" value={compactCurrency(analytics.grossTotal)} title={currency(analytics.grossTotal)} />
+      <Kpi icon={TrendingUp} label="Proventos" value={compactCurrency(analytics.provents)} title={currency(analytics.provents)} />
+      <Kpi icon={ShieldAlert} label="Custo rescisões" value={compactCurrency(analytics.resignationGross)} title={currency(analytics.resignationGross)} />
       <Kpi icon={Landmark} label="Encargos" value={compactCurrency(analytics.chargesTotal)} title={currency(analytics.chargesTotal)} />
       <Kpi icon={TrendingUp} label="Líquido" value={compactCurrency(analytics.net)} title={currency(analytics.net)} />
       <Kpi icon={CheckCircle2} label="Admissões" value={analytics.admissions.length.toLocaleString("pt-BR")} />
@@ -1369,6 +1460,8 @@ function BranchRankingPanel({ analytics }) {
     { title: "Férias Rec", getValue: (item) => item.vacationTerminations, formatValue: compactCurrency, detail: (item) => currency(item.vacationTerminations) },
     { title: "Faltas/atrasos", getValue: (item) => item.absenceHours, formatValue: formatHours, detail: (item) => currency(item.absenceValue) },
     { title: "Encargos", getValue: (item) => item.charges, formatValue: compactCurrency, detail: (item) => currency(item.charges) },
+    { title: "Provisão de férias", getValue: (item) => item.vacationProvision, formatValue: compactCurrency, detail: (item) => currency(item.vacationProvision) },
+    { title: "Provisão de 13º", getValue: (item) => item.thirteenthProvision, formatValue: compactCurrency, detail: (item) => currency(item.thirteenthProvision) },
   ];
 
   return (
@@ -1511,7 +1604,7 @@ function Overtime({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
-      <Panel title="Valores de HE por competência" icon={Banknote}>
+      <Panel title="Valores de HE por competência" icon={Banknote} wide>
         <Chart>
           <BarChart data={analytics.byMonth}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -1525,7 +1618,7 @@ function Overtime({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
-      <Panel title="Top 5 mais horas extras" icon={AlertTriangle}>
+      <Panel title="Top 5 mais horas extras" icon={AlertTriangle} wide>
         <OvertimeRanking rows={analytics.overtimeTop} />
       </Panel>
       <BranchMetricChart title="Top filiais por horas extras" icon={Landmark} rows={analytics.branchRanking} valueKey="overtimeTotalHours" barName="Horas" formatter={formatHours} color="#85523A" wide />
@@ -1616,15 +1709,15 @@ function Attendance({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
-      <BranchMetricChart title="Top filiais por faltas/atrasos" icon={Landmark} rows={analytics.branchRanking} valueKey="absenceHours" barName="Horas" formatter={formatHours} color="#f59e0b" />
-      <Panel title="Resumo por competência" icon={CalendarDays}>
+      <BranchMetricChart title="Top filiais por faltas/atrasos" icon={Landmark} rows={analytics.branchRanking} valueKey="absenceHours" barName="Horas" formatter={formatHours} color="#f59e0b" wide />
+      <Panel title="Resumo por competência" icon={CalendarDays} wide>
         <DataTable columns={["Mês", "Horas", "Valor", "Amarelos", "Vermelhos"]} rows={monthlyRows} />
       </Panel>
-      <Panel title="Maiores ocorrências no filtro" icon={ShieldAlert}>
-        <DataTable columns={["Nível", "Mês", "Matriz/Filial", "Contrato", "Colaborador", "Horas", "Valor"]} rows={topRows} limit={10} />
+      <Panel title="Maiores ocorrências no filtro" icon={ShieldAlert} wide>
+        <DataTable columns={["Nível", "Mês", "Matriz/Filial", "Contrato", "Colaborador", "Horas", "Valor"]} rows={topRows} limit={10} rowClassName={alertRowClass} />
       </Panel>
       <Panel title="Alertas para ação no mês" icon={AlertTriangle} wide>
-        <DataTable columns={["Nível", "Mês", "Matriz/Filial", "Contrato", "Colaborador", "Horas", "Valor"]} rows={alertRows} empty="Sem alertas de faltas/atrasos no filtro." limit={120} />
+        <DataTable columns={["Nível", "Mês", "Matriz/Filial", "Contrato", "Colaborador", "Horas", "Valor"]} rows={alertRows} empty="Sem alertas de faltas/atrasos no filtro." limit={120} rowClassName={alertRowClass} />
       </Panel>
     </section>
   );
@@ -1669,15 +1762,15 @@ function MedicalCertificates({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
-      <BranchMetricChart title="Top filiais por atestados" icon={Landmark} rows={analytics.branchRanking} valueKey="medicalCertificateHours" barName="Horas" formatter={formatHours} color="#2563eb" />
-      <Panel title="Resumo mensal" icon={CalendarDays}>
+      <BranchMetricChart title="Top filiais por atestados" icon={Landmark} rows={analytics.branchRanking} valueKey="medicalCertificateHours" barName="Horas" formatter={formatHours} color="#2563eb" wide />
+      <Panel title="Resumo mensal" icon={CalendarDays} wide>
         <DataTable
           columns={["Mês", "Ocorrências", "Horas", "Valor"]}
           rows={analytics.byMonth.map((item) => [item.label, item.medicalCertificateRecords, formatHours(item.medicalCertificateHours), currency(item.medicalCertificateValue)])}
           empty="Sem atestados no filtro."
         />
       </Panel>
-      <Panel title="Atestados por colaborador" icon={Users}>
+      <Panel title="Atestados por colaborador" icon={Users} wide>
         <DataTable
           columns={["Mês", "Matriz/Filial", "Contrato", "Colaborador", "Cargo", "Horas", "Valor"]}
           rows={detailRows}
@@ -1740,7 +1833,7 @@ function Variables({ analytics }) {
           </BarChart>
         </Chart>
       </Panel>
-      <Panel title="Critérios das variáveis" icon={ClipboardCheck}>
+      <Panel title="Critérios das variáveis" icon={ClipboardCheck} wide>
         <DataTable
           columns={["Grupo", "O que entra"]}
           rows={[
@@ -1751,7 +1844,7 @@ function Variables({ analytics }) {
           limit={10}
         />
       </Panel>
-      <Panel title="Top colaboradores por variável" icon={Users}>
+      <Panel title="Top colaboradores por variável" icon={Users} wide>
         <DataTable columns={["Matriz/Filial", "Contrato", "Colaborador", "Comissões", "Prêmios", "Adicionais", "Total"]} rows={topRows} limit={10} />
       </Panel>
       <Panel title="Consignados por competência" icon={Banknote}>
@@ -1766,7 +1859,7 @@ function Variables({ analytics }) {
         </Chart>
       </Panel>
       <BranchMetricChart title="Top filiais por consignados" icon={Landmark} rows={analytics.branchRanking} valueKey="loans" barName="Consignados" formatter={compactCurrency} color="#8b5cf6" />
-      <Panel title="Empréstimos consignados" icon={Banknote}>
+      <Panel title="Empréstimos consignados" icon={Banknote} wide>
         <DataTable columns={["Contrato", "Colaborador", "Matriz/Filial", "Mês", "Valor"]} rows={analytics.loans.slice(0, 80).map((item) => [item.contract, item.name, branchLabel(item.branch), item.period.label, currency(loanValue(item))])} />
       </Panel>
     </section>
@@ -1788,7 +1881,7 @@ function Charges({ analytics }) {
         </Chart>
       </Panel>
       <BranchMetricChart title="Top filiais por encargos" icon={Landmark} rows={analytics.branchRanking} valueKey="charges" barName="Encargos" formatter={compactCurrency} color="#85523A" />
-      <Panel title="Valores por tipo" icon={Banknote}>
+      <Panel title="Valores por tipo" icon={Banknote} wide>
         <DataTable columns={["Encargo", "Valor"]} rows={analytics.charges.map((item) => [item.name, currency(item.value)])} />
       </Panel>
       <Panel title="Encargos por competência" icon={CalendarDays} wide>
@@ -1826,16 +1919,16 @@ function Benefits({ analytics }) {
       </Panel>
       <BranchMetricChart title="Top filiais por férias" icon={Landmark} rows={analytics.branchRanking} valueKey="vacations" barName="Férias" formatter={compactCurrency} color="#0f766e" />
       <BranchMetricChart title="Top filiais por férias rescisórias" icon={ShieldAlert} rows={analytics.branchRanking} valueKey="vacationTerminations" barName="Férias rescisórias" formatter={compactCurrency} color="#ef4444" />
-      <Panel title="Resumo por competência" icon={ClipboardCheck}>
+      <Panel title="Resumo por competência" icon={ClipboardCheck} wide>
         <DataTable columns={["Mês", "Férias", "Férias rescisórias"]} rows={analytics.byMonth.map((item) => [item.label, currency(item.vacations), currency(item.vacationTerminations)])} />
       </Panel>
-      <Panel title="Férias" icon={CalendarDays}>
+      <Panel title="Férias" icon={CalendarDays} wide>
         <DataTable
           columns={["Colaborador", "Matriz/Filial", "Saída", "Dias", "Custo"]}
           rows={analytics.vacations.slice(0, 80).map((item) => [item.name, branchLabel(item.branch), shortDate(item.vacation.start), item.vacation.days || "-", currency(vacationValue(item))])}
         />
       </Panel>
-      <Panel title="Férias rescisórias" icon={ShieldAlert}>
+      <Panel title="Férias rescisórias" icon={ShieldAlert} wide>
         <DataTable
           columns={["Colaborador", "Matriz/Filial", "Mês", "Contrato", "Valor"]}
           rows={analytics.vacationTerminations.slice(0, 80).map((item) => [item.name, branchLabel(item.branch), item.period.label, item.contract, currency(vacationTerminationValue(item))])}
@@ -1888,31 +1981,48 @@ function Provisions({ analytics }) {
 }
 
 function VacationSchedule({ analytics }) {
+  const counts = analytics.vacationSchedule.reduce((result, item) => {
+    result[item.urgency] = (result[item.urgency] || 0) + 1;
+    return result;
+  }, {});
+  const urgencyClass = (urgency) => urgency === "Vencido" ? "expired" : ["Até 30 dias", "Até 2 meses"].includes(urgency) ? "due-soon" : "regular";
+
   return (
     <section className="grid two">
       <Panel
         title="Programação de férias"
         icon={CalendarDays}
         wide
-        subtitle={`Posição ${shortDate(analytics.scheduleReferenceDate)}; períodos vencidos ou com data-limite nos próximos dois meses. Um registro principal por colaborador.`}
+        subtitle={`Competência ${periodLabel(analytics.schedulePeriod)} · posição do relatório ${shortDate(analytics.scheduleReferenceDate)} · período aquisitivo mais antigo por colaborador.`}
       >
-        <DataTable
-          columns={["Colaborador", "Matrícula", "Empresa", "CNPJ", "Estabelecimento", "Período aquisitivo", "Data-limite", "Total de dias", "Já gozados", "Saldo a gozar", "Situação"]}
-          rows={analytics.vacationSchedule.map((item) => [
-            item.name,
-            item.contract,
-            item.company,
-            item.cnpj,
-            item.branch?.name,
-            `${shortDate(item.acquisitionStart)} a ${shortDate(item.acquisitionEnd)}${item.periodCount > 1 ? ` (+${item.periodCount - 1} período)` : ""}`,
-            shortDate(item.deadline),
-            item.totalDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 }),
-            item.daysTaken.toLocaleString("pt-BR", { maximumFractionDigits: 1 }),
-            `${item.balanceDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias`,
-            item.urgency,
-          ])}
-          empty="Nenhum período vencido ou próximo do limite no filtro atual."
-        />
+        <div className="vacation-alert-summary">
+          <div className="expired"><span>Vencidos</span><strong>{counts.Vencido || 0}</strong><small>Ação imediata</small></div>
+          <div className="due-soon"><span>Até 2 meses</span><strong>{(counts["Até 30 dias"] || 0) + (counts["Até 2 meses"] || 0)}</strong><small>Programar agora</small></div>
+          <div><span>Demais colaboradores</span><strong>{(counts["No prazo"] || 0) + (counts["Sem saldo"] || 0)}</strong><small>Visíveis para consulta</small></div>
+          <div><span>Total na lista</span><strong>{analytics.vacationSchedule.length}</strong><small>Um registro principal por pessoa</small></div>
+        </div>
+        {analytics.vacationSchedule.length ? (
+          <div className="vacation-schedule-list">
+            {analytics.vacationSchedule.map((item) => (
+              <article className={`vacation-schedule-row ${urgencyClass(item.urgency)}`} key={`${item.branch?.code}-${item.contract}`}>
+                <div className="vacation-person">
+                  <span>{item.branch?.code} · Matrícula {item.contract}</span>
+                  <strong>{item.name}</strong>
+                  <small>{item.branch?.name}</small>
+                </div>
+                <div className="vacation-period">
+                  <span>Período aquisitivo</span>
+                  <strong>{shortDate(item.acquisitionStart)} a {shortDate(item.acquisitionEnd)}</strong>
+                  {item.periodCount > 1 && <small>+{item.periodCount - 1} período(s) em detalhe</small>}
+                </div>
+                <div><span>Data-limite</span><strong>{shortDate(item.deadline)}</strong><small>{item.daysToDeadline === null ? "Sem data calculada" : item.daysToDeadline < 0 ? `${Math.abs(item.daysToDeadline)} dias vencido` : `${item.daysToDeadline} dias restantes`}</small></div>
+                <div><span>Direito</span><strong>{item.totalDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias</strong><small>{item.daysTaken.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} já gozados</small></div>
+                <div className="vacation-balance"><span>Saldo a gozar</span><strong>{item.balanceDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias</strong><small>{item.company} · {item.cnpj}</small></div>
+                <div className={`urgency-badge ${urgencyClass(item.urgency)}`}><strong>{item.urgency}</strong></div>
+              </article>
+            ))}
+          </div>
+        ) : <div className="empty-state">Nenhum colaborador encontrado no filtro atual.</div>}
       </Panel>
     </section>
   );
@@ -2132,7 +2242,7 @@ function formatDateTime(value) {
   }).format(new Date(value));
 }
 
-function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeriod, isAdmin }) {
+function ImportCenter({ dataset, analytics, importHistory, onRemovePeriod, removingPeriod, onUpload, onDrop, dragActive, setDragActive, uploading }) {
   const quality = dataset.quality || {};
   const reportNames = { payroll: "Folha", vacation_provision: "Provisão férias", thirteenth_provision: "Provisão 13º", vacation_schedule: "Programação férias" };
   const reconciliationText = (values, type) => type === "payroll"
@@ -2167,7 +2277,26 @@ function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeri
 
   return (
     <section className="grid two">
-      <Panel title="Auditoria da base atual" icon={ClipboardCheck} wide>
+      <Panel title="Importar relatórios" icon={FileUp} wide>
+        <label
+          className={dragActive ? "import-dropzone-large active" : "import-dropzone-large"}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={onDrop}
+        >
+          <div className="import-dropzone-icon"><FileUp size={30} /></div>
+          <div>
+            <strong>{uploading ? "Analisando relatórios..." : "Arraste os PDFs para importar"}</strong>
+            <span>ou clique para selecionar um ou vários arquivos</span>
+          </div>
+          <small>Folha de pagamento · Provisão de férias · Provisão de 13º · Programação de férias</small>
+          <input type="file" accept="application/pdf" multiple onChange={onUpload} disabled={uploading} />
+        </label>
+      </Panel>
+      <Panel title="Situação da base atual" icon={ClipboardCheck} wide>
         <div className="metric-inline">
           <div><span>PDFs ativos</span><strong>{dataset.sources.length.toLocaleString("pt-BR")}</strong><small>{dataset.periods.map(periodLabel).join(", ")}</small></div>
           <div><span>Registros extraídos</span><strong>{((quality.employeeRecords || 0) + (dataset.provisions?.length || 0) + (dataset.vacationSchedule?.length || 0)).toLocaleString("pt-BR")}</strong><small>{dataset.branches.length.toLocaleString("pt-BR")} estabelecimentos identificados</small></div>
@@ -2213,8 +2342,7 @@ function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeri
         />
       </Panel>
       <Panel title="Histórico de importações manuais" icon={FileUp} wide>
-        {isAdmin && (
-          <div className="period-admin">
+        <div className="period-admin">
             <div>
               <strong>Meses ativos na base</strong>
               <span>Remover tira o mês do BI atual, sem apagar o PDF nem o registro da importação no Supabase.</span>
@@ -2228,7 +2356,6 @@ function Audit({ dataset, analytics, importHistory, onRemovePeriod, removingPeri
               ))}
             </div>
           </div>
-        )}
         <DataTable
           columns={["Data", "Status", "Arquivos", "Períodos", "Filiais", "Registros", "Batido", "Detalhe"]}
           rows={historyRows}
@@ -2431,35 +2558,43 @@ function importSummaryFromDataset(payload, files) {
     employeeRecords: payload.quality?.employeeRecords || rows.length,
     gross: sum(rows, (row) => row.totals?.gross),
     net: sum(rows, (row) => row.totals?.net),
-    admissions: rows.filter((row) => row.admission?.date).length,
-    terminations: rows.filter((row) => row.termination?.date).length,
+    admissions: rows.filter((row) => row.admissionDate?.slice(0, 7) === row.period?.key).length,
+    terminations: rows.filter((row) => row.resignationDate?.slice(0, 7) === row.period?.key).length,
     reconciliationMatched: Boolean(payload.quality?.reconciliationMatched),
     unclassifiedEventCount: payload.quality?.unclassifiedEventCount || 0,
   };
 }
 
-function ImportProgressModal({ state, onClose }) {
+function ImportProgressModal({ state, onClose, onConfirm }) {
   const running = state.status === "running";
+  const saving = state.status === "saving";
+  const review = state.status === "review";
   const done = state.status === "done";
   const failed = state.status === "error";
   const summary = state.summary || {};
-  const steps = ["Enviando PDFs", "Identificando relatórios", "Extraindo dados", "Conferindo totais", "Salvando histórico"];
+  const reportNames = { payroll: "Folha", vacation_provision: "Provisão férias", thirteenth_provision: "Provisão 13º", vacation_schedule: "Programação férias" };
+  const reportLabel = (summary.reports || []).map((item) => reportNames[item.reportType] || item.reportType).join(", ") || "Relatório";
+  const competenceLabel = (summary.periods || []).map(periodLabel).join(", ") || "não identificada";
 
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-title">
-        <div className={failed ? "import-icon danger" : done ? "import-icon success" : "import-icon"}>
-          {failed ? <AlertTriangle size={24} /> : done ? <CheckCircle2 size={24} /> : <RefreshCw size={24} />}
+        <div className={failed ? "import-icon danger" : done || review ? "import-icon success" : "import-icon"}>
+          {failed ? <AlertTriangle size={24} /> : done || review ? <CheckCircle2 size={24} /> : <RefreshCw size={24} />}
         </div>
         <div className="import-copy">
           <span>{state.replaceExisting ? "Substituição de relatório" : "Importação de relatórios"}</span>
           <h2 id="import-title">
             {running && "Importando e conferindo PDFs"}
+            {saving && "Salvando importação"}
+            {review && "Confirme a competência identificada"}
             {done && "Importação concluída"}
             {failed && "Importação não concluída"}
           </h2>
           <p>
-            {running && "Mantenha esta janela aberta enquanto o sistema identifica cada relatório, valida os totais e salva o histórico."}
+            {running && "Mantenha esta janela aberta enquanto o sistema identifica cada relatório, extrai os dados e valida os totais."}
+            {saving && "A competência foi confirmada. Agora o sistema está substituindo ou incorporando os dados e preservando o histórico."}
+            {review && `O sistema reconheceu ${reportLabel} na competência ${competenceLabel}. Confirme antes de gravar na base.`}
             {done && "Os dados foram incorporados à base e já estão disponíveis nos filtros do painel."}
             {failed && state.error}
           </p>
@@ -2471,20 +2606,27 @@ function ImportProgressModal({ state, onClose }) {
           ))}
         </div>
 
-        {running && (
-          <div className="import-steps">
-            {steps.map((step) => (
-              <div key={step} className="import-step active">
-                <span />
-                {step}
-              </div>
-            ))}
+        {(running || saving) && (
+          <div className="import-progress">
+            <div className="import-progress-heading">
+              <strong>{saving ? "Gravando no banco e atualizando o BI" : "Lendo, classificando e conferindo valores"}</strong>
+              <span>{Math.round(state.progress || 0)}%</span>
+            </div>
+            <div className="import-progress-track"><span style={{ width: `${state.progress || 0}%` }} /></div>
+            <small>{saving ? "Não feche esta janela até a confirmação final." : "Nenhum valor é salvo antes da sua confirmação."}</small>
           </div>
         )}
 
-        {done && (
+        {(review || done) && (
+          <>
+          {review && state.hasDuplicates && (
+            <div className="import-duplicate-warning">
+              <AlertTriangle size={18} />
+              <span>Já existe um relatório deste tipo na competência confirmada. A substituição exigirá uma segunda confirmação.</span>
+            </div>
+          )}
           <div className="import-summary-grid">
-            <div><span>Tipos reconhecidos</span><strong>{(summary.reports || []).map((item) => ({ payroll: "Folha", vacation_provision: "Provisão férias", thirteenth_provision: "Provisão 13º", vacation_schedule: "Programação férias" }[item.reportType] || item.reportType)).join(", ") || "Folha"}</strong></div>
+            <div><span>Tipos reconhecidos</span><strong>{reportLabel}</strong></div>
             <div><span>Períodos</span><strong>{(summary.periods || []).map(periodLabel).join(", ") || "-"}</strong></div>
             <div><span>Filiais</span><strong>{summary.branchCount || summary.branches?.length || 0}</strong></div>
             <div><span>Registros</span><strong>{Number(summary.reportRecords || summary.employeeRecords || 0).toLocaleString("pt-BR")}</strong></div>
@@ -2495,9 +2637,17 @@ function ImportProgressModal({ state, onClose }) {
             <div><span>Conferência</span><strong>{summary.reconciliationMatched ? "Valores batem" : "Revisar"}</strong></div>
             <div><span>Rubricas novas</span><strong>{summary.unclassifiedEventCount || 0}</strong></div>
           </div>
+          </>
         )}
 
-        {!running && (
+        {review && (
+          <div className="import-actions split">
+            <button className="secondary-action ghost" onClick={onClose}>Cancelar</button>
+            <button className="primary-action" onClick={onConfirm}>{state.hasDuplicates ? "Substituir competência" : "Confirmar e importar"}</button>
+          </div>
+        )}
+
+        {(done || failed) && (
           <div className="import-actions">
             <button className="primary-action" onClick={onClose}>
               Entendi
@@ -2542,6 +2692,8 @@ function branchRankingExportRows(rows) {
     { label: "Ferias Rec", valueKey: "vacationTerminations", moneyKey: "vacationTerminations", detail: () => "" },
     { label: "Faltas e atrasos", valueKey: "absenceHours", moneyKey: "absenceValue", detail: () => "" },
     { label: "Encargos", valueKey: "charges", moneyKey: "charges", detail: () => "" },
+    { label: "Provisao de ferias", valueKey: "vacationProvision", moneyKey: "vacationProvision", detail: () => "" },
+    { label: "Provisao de 13o", valueKey: "thirteenthProvision", moneyKey: "thirteenthProvision", detail: () => "" },
   ];
 
   return rankings.flatMap((ranking) =>
@@ -3105,7 +3257,13 @@ function Chart({ children }) {
   return <ResponsiveContainer width="100%" height={310}>{children}</ResponsiveContainer>;
 }
 
-function DataTable({ columns, rows, empty = "Nenhum registro no filtro.", limit = 80 }) {
+function alertRowClass(row) {
+  if (row?.[0] === "Vermelho") return "alert-row-red";
+  if (row?.[0] === "Amarelo") return "alert-row-yellow";
+  return "";
+}
+
+function DataTable({ columns, rows, empty = "Nenhum registro no filtro.", limit = 80, rowClassName }) {
   const displayed = rows.slice(0, limit);
   if (!displayed.length) {
     return <div className="empty-state">{empty}</div>;
@@ -3114,7 +3272,7 @@ function DataTable({ columns, rows, empty = "Nenhum registro no filtro.", limit 
   return (
     <div className="record-list">
       {displayed.map((row, index) => (
-        <article className="record-row" key={index}>
+        <article className={`record-row ${rowClassName?.(row, index) || ""}`} key={index}>
           <div className="record-primary">
             <span>{columns[0]}</span>
             <strong>{row[0]}</strong>

@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from parse_payroll import build_dataset
+from report_parsers import period_from_report
 
 
 FILES = [
@@ -15,6 +16,18 @@ FILES = [
     Path(r"C:\Users\lucasg\Downloads\Provisao decimo 072026.pdf"),
     Path(r"C:\Users\lucasg\Downloads\ferias geral 072026 Florybal (1).pdf"),
 ]
+
+
+class ReportCompetenceRuleTests(unittest.TestCase):
+    def test_vacation_schedule_uses_month_before_position_date(self):
+        period = period_from_report("Controle e Programação das Férias\nPosição em 07/08/2026", "vacation_schedule")
+        self.assertEqual(period["key"], "2026-07")
+        self.assertEqual(period["positionDate"], "2026-08-07")
+        self.assertEqual(period["end"], "2026-08-07")
+
+    def test_vacation_schedule_handles_year_boundary(self):
+        period = period_from_report("Posição em 05/01/2027", "vacation_schedule")
+        self.assertEqual(period["key"], "2026-12")
 
 
 @unittest.skipUnless(all(path.exists() for path in FILES), "PDFs de validação não disponíveis nesta máquina")
@@ -28,9 +41,11 @@ class SpecialReportParserTests(unittest.TestCase):
         self.assertEqual(reports, {
             ("vacation_provision", "2026-07"),
             ("thirteenth_provision", "2026-07"),
-            ("vacation_schedule", "2026-08"),
+            ("vacation_schedule", "2026-07"),
         })
         self.assertTrue(all(item["status"] == "read" for item in self.dataset["reportImports"]))
+        schedule_import = next(item for item in self.dataset["reportImports"] if item["reportType"] == "vacation_schedule")
+        self.assertEqual(schedule_import["period"]["positionDate"], "2026-08-07")
 
     def test_official_provision_totals(self):
         grand = {item["reportType"]: item for item in self.dataset["provisionSummaries"] if item["isGrandTotal"]}

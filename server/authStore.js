@@ -31,7 +31,7 @@ async function authJson(endpoint, options = {}) {
 }
 
 export function isAuthConfigured() {
-  return isSupabaseConfigured();
+  return process.env.DISABLE_AUTH !== "true" && isSupabaseConfigured();
 }
 
 export function publicUser(user) {

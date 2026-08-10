@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createUser, deleteUser, hasUsers, isAuthConfigured, listUsers, loginUser, publicUser, userFromToken } from "./authStore.js";
-import { mergePayrollDatasets, removePayrollPeriods } from "./datasetMerge.js";
+import { mergePayrollDatasets, normalizeVacationScheduleCompetence, removePayrollPeriods } from "./datasetMerge.js";
 import { loadEnv } from "./env.js";
 import { importHistoryFromSupabase, isSupabaseConfigured, latestPayrollFromSupabase, saveImportToSupabase } from "./supabaseStore.js";
 
@@ -188,17 +188,17 @@ async function persistImport(id, status, files, payload = null, detail = "") {
 async function currentPayrollDataset() {
   if (isSupabaseConfigured()) {
     const payload = await latestPayrollFromSupabase();
-    if (payload) return payload;
+    if (payload) return normalizeVacationScheduleCompetence(payload);
   }
-  if (fs.existsSync(payrollDataPath)) return JSON.parse(fs.readFileSync(payrollDataPath, "utf8"));
+  if (fs.existsSync(payrollDataPath)) return normalizeVacationScheduleCompetence(JSON.parse(fs.readFileSync(payrollDataPath, "utf8")));
   return null;
 }
 
 function importResponseSummary(parsedPayload, files) {
   const rows = parsedPayload.employees || [];
   const branches = parsedPayload.branches || [];
-  const admissions = rows.filter((row) => row.admission?.date).length;
-  const terminations = rows.filter((row) => row.termination?.date).length;
+  const admissions = rows.filter((row) => row.admissionDate?.slice(0, 7) === row.period?.key).length;
+  const terminations = rows.filter((row) => row.resignationDate?.slice(0, 7) === row.period?.key).length;
   return {
     files: files.map((file) => file.originalname),
     reports: parsedPayload.reportImports || [],
@@ -221,7 +221,7 @@ app.get("/api/payroll", requireAuth, async (_req, res) => {
     try {
       const payload = await latestPayrollFromSupabase();
       if (payload) {
-        res.json(payload);
+        res.json(normalizeVacationScheduleCompetence(payload));
         return;
       }
     } catch (error) {
@@ -357,6 +357,20 @@ app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, r
       const duplicateReports = parsedReports.filter((item) => baseReportKeys.has(`${item.reportType}:${item.period?.key}`));
       const duplicatePeriods = [...new Set(duplicateReports.map((item) => item.period?.key).filter(Boolean))];
       const replaceExisting = req.body?.replaceExisting === "true" || req.query?.replaceExisting === "true";
+      const previewOnly = req.body?.previewOnly === "true" || req.query?.previewOnly === "true";
+      const importSummary = importResponseSummary(parsedPayload, req.files);
+      if (previewOnly) {
+        fs.rm(pendingPath, { force: true }, () => {});
+        for (const file of req.files) fs.rm(file.path, { force: true }, () => {});
+        res.json({
+          preview: true,
+          importSummary,
+          hasDuplicates: duplicateReports.length > 0,
+          duplicatePeriods,
+          duplicateReports,
+        });
+        return;
+      }
       if (duplicateReports.length && !replaceExisting) {
         fs.rm(pendingPath, { force: true }, () => {});
         for (const file of req.files) fs.rm(file.path, { force: true }, () => {});
@@ -370,7 +384,6 @@ app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, r
         return;
       }
       const payload = mergePayrollDatasets(basePayload, parsedPayload);
-      const importSummary = importResponseSummary(parsedPayload, req.files);
       fs.writeFileSync(pendingPath, JSON.stringify(payload, null, 2), "utf8");
       ensureDir(historyDir);
       await persistImport(id, "imported", req.files, payload);

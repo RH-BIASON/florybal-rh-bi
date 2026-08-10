@@ -43,6 +43,23 @@ def period_from_date(value):
     }
 
 
+def previous_month_period_from_position(value):
+    parsed = iso_date(value)
+    if not parsed:
+        return None
+    position = datetime.fromisoformat(parsed)
+    previous_year = position.year if position.month > 1 else position.year - 1
+    previous_month = position.month - 1 if position.month > 1 else 12
+    key = f"{previous_year}-{previous_month:02d}"
+    return {
+        "key": key,
+        "label": f"{previous_month:02d}/{previous_year}",
+        "start": key + "-01",
+        "end": parsed,
+        "positionDate": parsed,
+    }
+
+
 def report_type(text):
     value = normalized(text)
     if "PROVISAO FERIAS" in value and "ENCARGOS" in value:
@@ -64,7 +81,11 @@ def period_from_report(text, kind):
             period["end"] = iso_date(match.group(2))
             return period
     match = re.search(r"Posi[^\n]{0,8}o em\s+(\d{2}/\d{2}/\d{4})", text, re.I)
-    return period_from_date(match.group(1)) if match else None
+    if not match:
+        return None
+    if kind == "vacation_schedule":
+        return previous_month_period_from_position(match.group(1))
+    return period_from_date(match.group(1))
 
 
 def branch_info(code, printed_name=""):
