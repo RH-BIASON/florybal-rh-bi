@@ -1311,7 +1311,6 @@ function KpiStrip({ analytics }) {
         title={`${analytics.records.toLocaleString("pt-BR")} linhas de colaborador por competência no filtro atual`}
       />
       <Kpi icon={BriefcaseBusiness} label="Folha bruta" value={compactCurrency(analytics.grossTotal)} title={currency(analytics.grossTotal)} />
-      <Kpi icon={TrendingUp} label="Proventos" value={compactCurrency(analytics.provents)} title={currency(analytics.provents)} />
       <Kpi icon={ShieldAlert} label="Custo rescisões" value={compactCurrency(analytics.resignationGross)} title={currency(analytics.resignationGross)} />
       <Kpi icon={Landmark} label="Encargos" value={compactCurrency(analytics.chargesTotal)} title={currency(analytics.chargesTotal)} />
       <Kpi icon={TrendingUp} label="Líquido" value={compactCurrency(analytics.net)} title={currency(analytics.net)} />
