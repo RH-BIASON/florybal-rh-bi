@@ -99,23 +99,33 @@ class PayrollParserTests(unittest.TestCase):
         self.assertEqual(medical_certificate_kind(certificate), "Atestado")
         self.assertTrue(is_classified_event(old_reflex))
 
+    def test_known_new_events_do_not_enter_indicators(self):
+        for code, description in [
+            ("17004", "Férias A.P.I. s/ATS"),
+            ("00108", "Horas Reduzida Noturnas 100%"),
+            ("00090", "Outras verbas (folgas)"),
+        ]:
+            self.assertTrue(is_classified_event({"code": code, "description": description, "quantity": None, "value": 100}))
+
     def test_fgts_and_inss_company_use_exact_codes(self):
         employees = self.dataset["employees"]
-        self.assertAlmostEqual(sum(item["charges"]["fgts"] for item in employees), 1_140_195.00, places=2)
+        self.assertAlmostEqual(sum(item["charges"]["fgts"] for item in employees), 1_079_297.03, places=2)
         self.assertAlmostEqual(sum(item["charges"]["inss_company"] for item in employees), 158_086.22, places=2)
 
     def test_official_charge_summaries_are_extracted(self):
         grand_totals = [item for item in self.dataset["chargeSummaries"] if item["isGrandTotal"]]
         self.assertEqual(len(grand_totals), 5)
-        self.assertAlmostEqual(sum(item["charges"]["fgts"] for item in grand_totals), 518_030.88, places=2)
+        self.assertAlmostEqual(sum(item["charges"]["fgts"] for item in grand_totals), 460_927.89, places=2)
         self.assertAlmostEqual(sum(item["charges"]["inss_company"] for item in grand_totals), 1_180_688.69, places=2)
+        self.assertAlmostEqual(sum(item["charges"]["resignation_charges"] for item in grand_totals), 61_517.38, places=2)
 
     def test_may_charge_summary_uses_pdf_grand_total(self):
         dataset = build_dataset([MAY_PDF])
         grand_total = next(item for item in dataset["chargeSummaries"] if item["isGrandTotal"])
         self.assertEqual(grand_total["period"]["key"], "2026-05")
-        self.assertAlmostEqual(grand_total["charges"]["fgts"], 126_049.31, places=2)
+        self.assertAlmostEqual(grand_total["charges"]["fgts"], 106_634.85, places=2)
         self.assertAlmostEqual(grand_total["charges"]["inss_company"], 266_479.21, places=2)
+        self.assertAlmostEqual(grand_total["charges"]["resignation_charges"], 20_582.70, places=2)
 
 
 if __name__ == "__main__":

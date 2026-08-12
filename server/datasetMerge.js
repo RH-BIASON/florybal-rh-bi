@@ -96,6 +96,35 @@ function buildRecordsBySource(employees) {
   );
 }
 
+function buildUnclassifiedEvents(employees) {
+  const totals = new Map();
+  for (const employee of employees) {
+    for (const event of employee.unclassifiedEvents || []) {
+      const key = `${event.code}|${event.description}`;
+      if (!totals.has(key)) totals.set(key, { code: event.code, description: event.description, count: 0, quantity: 0, value: 0, examples: [] });
+      const row = totals.get(key);
+      row.count += 1;
+      row.quantity += Number(event.quantity || 0);
+      row.value += Number(event.value || 0);
+      if (row.examples.length < 3) {
+        row.examples.push({
+          sourceFile: employee.sourceFile,
+          sourcePage: employee.sourcePage,
+          period: employee.period?.label,
+          branch: employee.branch?.label,
+          contract: employee.contract,
+          employee: employee.name,
+        });
+      }
+    }
+  }
+  return [...totals.values()].map((item) => ({
+    ...item,
+    quantity: Number(item.quantity.toFixed(2)),
+    value: Number(item.value.toFixed(2)),
+  })).sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || String(a.code).localeCompare(String(b.code)));
+}
+
 function rebuildQuality(baseDataset, importedDataset, employees, newPeriods) {
   const basePeriodBySource = sourcePeriodMap(baseDataset);
   const quality = {
@@ -110,10 +139,7 @@ function rebuildQuality(baseDataset, importedDataset, employees, newPeriods) {
     ...keepOldQualityItems(baseDataset?.quality?.diagnostics, newPeriods, basePeriodBySource),
     ...(importedDataset?.quality?.diagnostics || []),
   ];
-  const unclassifiedEvents = [
-    ...keepOldQualityItems(baseDataset?.quality?.unclassifiedEvents, newPeriods, basePeriodBySource),
-    ...(importedDataset?.quality?.unclassifiedEvents || []),
-  ];
+  const unclassifiedEvents = buildUnclassifiedEvents(employees);
   const warnings = employees.flatMap((employee) =>
     (employee.validation || []).map((warning) => ({
       periodKey: employee.period?.key,

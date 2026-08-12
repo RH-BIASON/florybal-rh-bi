@@ -46,7 +46,7 @@ const chartColors = ["#f59e0b", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64
 const tokenKey = "florybal_bi_token";
 const vacationCodes = new Set(["00061", "00062", "00063", "00065", "00066", "00067", "00068", "00069", "00081", "00083", "00085", "00086", "00165", "00166", "00167", "00197"]);
 const vacationTerminationCodes = new Set(["00070", "00071", "00072", "00073", "00075", "00076", "00077", "00078", "00079", "00080", "00176", "00177", "00178", "00179", "17001", "17002", "17006", "17007", "17008", "17099"]);
-const fgtsCodes = new Set(["00474", "00475", "00476", "00478", "00479"]);
+const fgtsCodes = new Set(["00474", "00475", "00476"]);
 const inssCompanyCodes = new Set(["00850", "00853", "00856"]);
 
 function currency(value) {
@@ -1244,11 +1244,14 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
     ? sum(vacations, (item) => vacationValue(item))
     : sum(summaryRows, (item) => item.payroll?.vacationsTakenGross);
   const resignationGross = sum(resignations, (item) => item.totals?.gross);
+  const proLabore = sum(rows, (item) => sum(item.events || [], (event) => event.code === "00012" ? event.value : 0));
   const provents = Math.max(0, payroll - resignationGross);
-  const grossTotal = provents + vacationsTakenGross + resignationGross;
+  const grossTotal = payroll;
+  const payrollGrossWithoutProLabore = Math.max(0, grossTotal - proLabore);
   const chargesTotal = sum(charges, (item) => item.value);
+  const resignationChargesTotal = sum(summaryRows, (item) => item.charges?.resignation_charges);
 
-  return { rows, records, employees, payroll, grossTotal, provents, vacationsTakenGross, resignationGross, chargesTotal, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking: branchRankingWithProvisions, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop, vacationProvision, thirteenthProvision, provisionChart, vacationSchedule, schedulePeriod, scheduleReferenceDate: referenceDate };
+  return { rows, records, employees, payroll, grossTotal, payrollGrossWithoutProLabore, proLabore, provents, vacationsTakenGross, resignationGross, resignationChargesTotal, chargesTotal, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking: branchRankingWithProvisions, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop, vacationProvision, thirteenthProvision, provisionChart, vacationSchedule, schedulePeriod, scheduleReferenceDate: referenceDate };
 }
 
 function toggleSet(value, setter) {
@@ -1310,8 +1313,14 @@ function KpiStrip({ analytics }) {
         value={analytics.records.toLocaleString("pt-BR")}
         title={`${analytics.records.toLocaleString("pt-BR")} linhas de colaborador por competência no filtro atual`}
       />
-      <Kpi icon={BriefcaseBusiness} label="Folha bruta" value={compactCurrency(analytics.grossTotal)} title={currency(analytics.grossTotal)} />
-      <Kpi icon={ShieldAlert} label="Custo rescisões" value={compactCurrency(analytics.resignationGross)} title={currency(analytics.resignationGross)} />
+      <Kpi
+        icon={BriefcaseBusiness}
+        label="Folha bruta"
+        value={compactCurrency(analytics.payrollGrossWithoutProLabore)}
+        title={`Folha sem pró-labore: ${currency(analytics.payrollGrossWithoutProLabore)} | Pró-labore: ${currency(analytics.proLabore)}`}
+        detail={`Pró-labore ${compactCurrency(analytics.proLabore)}`}
+        tone="payroll"
+      />
       <Kpi icon={Landmark} label="Encargos" value={compactCurrency(analytics.chargesTotal)} title={currency(analytics.chargesTotal)} />
       <Kpi icon={TrendingUp} label="Líquido" value={compactCurrency(analytics.net)} title={currency(analytics.net)} />
       <Kpi icon={CheckCircle2} label="Admissões" value={analytics.admissions.length.toLocaleString("pt-BR")} />
@@ -1334,12 +1343,13 @@ function DataStatus({ quality, analytics }) {
   );
 }
 
-function Kpi({ icon: Icon, label, value, title, tone = "" }) {
+function Kpi({ icon: Icon, label, value, title, tone = "", detail = "" }) {
   return (
     <article className={`kpi ${tone}`} title={title || `${label}: ${value}`}>
       <Icon size={20} />
       <span>{label}</span>
       <strong>{value}</strong>
+      {detail && <small>{detail}</small>}
     </article>
   );
 }
@@ -1541,6 +1551,13 @@ function BranchMetricChart({ title, icon, rows, valueKey, barName = "Valor", for
 function Movement({ analytics }) {
   return (
     <section className="grid two">
+      <Panel title="Resumo das rescisões" icon={ShieldAlert} wide>
+        <div className="metric-inline movement-summary">
+          <div><span>Rescisões</span><strong>{analytics.resignations.length.toLocaleString("pt-BR")}</strong></div>
+          <div><span>Custo bruto</span><strong>{compactCurrency(analytics.resignationGross)}</strong><small>{currency(analytics.resignationGross)}</small></div>
+          <div><span>Encargos rescisórios</span><strong>{compactCurrency(analytics.resignationChargesTotal)}</strong><small>Rubricas 00478 e 00479</small></div>
+        </div>
+      </Panel>
       <Panel title="Movimentação mensal" icon={Users} wide>
         <Chart>
           <BarChart data={analytics.byMonth}>
@@ -2030,6 +2047,7 @@ const rubricFallbackDescriptions = {
   "00475": "FGTS sobre o 13º Salário",
   "00476": "FGTS sobre valores pagos na rescisão",
   "00478": "FGTS Indenizado (40%)",
+  "00479": "INSS patronal sobre 13º rescisório",
   "00849": "INSS Empresa sobre salário e férias",
   "00852": "INSS Empresa sobre o 13º salário",
   "00855": "INSS Empresa sobre pró-labore",
@@ -2073,6 +2091,7 @@ function rubricCatalogSections(allRows) {
       items: [
         { title: "Admissões", type: "source", rule: "Campo Admissão, considerado quando a data pertence à competência da folha." },
         { title: "Rescisões", type: "source", rule: "Campo Rescisão, considerado quando a data pertence à competência da folha." },
+        { title: "Encargos rescisórios", type: "included", codes: ["00478", "00479"], rule: "Exibidos apenas na área de rescisões; não compõem os encargos gerais." },
         { title: "Cargo", type: "source", rule: "Campo Cargo do cadastro exibido no demonstrativo individual." },
       ],
     },
@@ -2119,7 +2138,7 @@ function rubricCatalogSections(allRows) {
       icon: Landmark,
       summary: "FGTS e INSS empresa vêm dos resumos oficiais; os demais seguem as linhas identificadas na folha.",
       items: [
-        { title: "FGTS", type: "included", codes: ["00473", "00474", "00475", "00476", "00478"], rule: "Soma oficial do resumo da competência." },
+        { title: "FGTS", type: "included", codes: ["00473", "00474", "00475", "00476"], rule: "Soma oficial do resumo da competência, sem encargos rescisórios." },
         { title: "INSS empresa", type: "included", codes: ["00849", "00852", "00855"], rule: "Soma oficial do resumo da competência." },
         { title: "RAT x FAP", type: "rule", codes: ["00850", "00853"], rule: "Linhas identificadas como RATxFAP no demonstrativo." },
         { title: "Terceiros", type: "rule", codes: ["00851", "00854"], rule: "Linhas Terceiros Empresa / Terceiros Parte Empresa." },

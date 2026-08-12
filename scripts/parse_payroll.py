@@ -17,10 +17,11 @@ EVENT_RE = re.compile(r"^(\d{5})\s+(.+?)\s*$")
 PERIOD_RE = re.compile(r"Folhas:\s*(\d{2}/\d{2}/\d{4})\s+a\s+(\d{2}/\d{2}/\d{4})")
 BRANCH_RE = re.compile(r"^(\d{3})\s+-\s+(.+)$")
 EVENT_RULES = json.loads(RULES_PATH.read_text(encoding="utf-8"))
-FGTS_CODES = {"00474", "00475", "00476", "00478", "00479"}
+FGTS_CODES = {"00474", "00475", "00476"}
 INSS_COMPANY_CODES = {"00850", "00853", "00856"}
-OFFICIAL_FGTS_CODES = {"00473", "00474", "00475", "00476", "00478"}
+OFFICIAL_FGTS_CODES = {"00473", "00474", "00475", "00476"}
 OFFICIAL_INSS_COMPANY_CODES = {"00849", "00852", "00855"}
+RESIGNATION_CHARGE_CODES = {"00478", "00479"}
 
 
 def br_money(value):
@@ -265,6 +266,7 @@ def charge_values_after_codes(lines):
     return {
         "fgts": sum_amounts_after_codes(lines, OFFICIAL_FGTS_CODES),
         "inss_company": sum_amounts_after_codes(lines, OFFICIAL_INSS_COMPANY_CODES),
+        "resignation_charges": sum_amounts_after_codes(lines, RESIGNATION_CHARGE_CODES),
     }
 
 

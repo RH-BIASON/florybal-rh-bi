@@ -238,7 +238,15 @@
         "00074",
         "00082",
         "00084",
+        "17004",
         "17005"
+      ]
+    },
+    {
+      "kind": "Verbas conhecidas fora dos indicadores",
+      "codes": [
+        "00090",
+        "00108"
       ]
     }
   ],
