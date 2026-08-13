@@ -14,3 +14,4 @@ Florybal/.env
 *.pdf
 .DS_Store
 portal-server*.log
+.local/

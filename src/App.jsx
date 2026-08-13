@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowUpRight, Building2, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import florybalLogo from "../Florybal/public/brand/florybal-logo.png";
-import pegadaLogo from "../Pegada/logo-pegada-2-1.webp";
+import pegadaLogo from "../Pegada/public/brand/logo-pegada-2-1.webp";
 
 const environments = [
   {

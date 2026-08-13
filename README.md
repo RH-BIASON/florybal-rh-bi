@@ -1,14 +1,37 @@
-# Área de trabalho BI RH/DP
+# Area de trabalho BI RH/DP
 
-Portal único para acesso aos ambientes de business intelligence das empresas.
+Portal unico para acesso aos ambientes de business intelligence das empresas.
+
+## Estrutura
+
+```text
+BI/
+|-- src/                  Portal e seletor de empresas
+|-- Florybal/             Aplicacao, API, parser e dados da Florybal
+|-- Pegada/
+|   |-- docs/             Questionarios e documentacao funcional
+|   `-- public/brand/     Logos e demais arquivos de marca
+|-- Dockerfile            Build conjunto para producao
+`-- render.yaml           Configuracao de deploy
+```
 
 ## Ambientes
 
 - `/`: seletor de empresas;
-- `/florybal/`: BI Florybal Chocolates, com autenticação e base existentes;
-- `/pegada/`: entrada do BI Calçados Pegada, ainda em implantação.
+- `/florybal/`: BI Florybal Chocolates, com autenticacao e base existentes;
+- `/pegada/`: entrada do BI Calcados Pegada, ainda em implantacao.
 
-As bases, regras de rubricas e importações permanecem separadas por empresa. O código atual da Florybal está em `Florybal/`; os arquivos iniciais da Pegada estão em `Pegada/`.
+As bases, regras de rubricas, usuarios e importacoes devem permanecer isolados por empresa. O codigo atual da Florybal esta em `Florybal/`. A Pegada devera receber aplicacao, banco, autenticacao, parser e APIs proprios antes de ser marcada como ambiente de producao.
+
+## Onde colocar novos arquivos
+
+- Codigo compartilhado do portal: `src/`;
+- Codigo e regras da Florybal: `Florybal/`;
+- Documentos funcionais da Pegada: `Pegada/docs/`;
+- Logos e identidade da Pegada: `Pegada/public/brand/`;
+- Arquivos temporarios e logs locais: `.local/` (ignorado pelo Git).
+
+Os PDFs de referencia da Florybal permanecem na raiz de `Florybal/`, pois os testes atuais do parser usam esses caminhos. Uma mudanca futura deve atualizar os scripts e testes no mesmo commit.
 
 ## Desenvolvimento
 
@@ -31,8 +54,6 @@ npm.cmd --prefix Florybal run test:parser
 npm.cmd --prefix Florybal run test:reports
 ```
 
-## Produção
+## Producao
 
-O Docker da raiz compila o portal e o BI Florybal. O mesmo servidor entrega as interfaces e mantém as APIs atuais em `/api/*`.
-
-A Pegada deverá receber banco, autenticação, parser e APIs próprios antes de ser marcada como ambiente de produção.
+O Docker da raiz compila o portal e o BI Florybal. O mesmo servidor entrega as interfaces e mantem as APIs atuais em `/api/*`.
