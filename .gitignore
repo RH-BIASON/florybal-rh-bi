@@ -1,8 +1,16 @@
 node_modules/
+Florybal/node_modules/
 dist/
+portal-dist/
+Florybal/dist/
 data/
+Florybal/data/
+postgres-data/
+Florybal/postgres-data/
 __pycache__/
 *.pyc
 .env
+Florybal/.env
 *.pdf
 .DS_Store
+portal-server*.log

@@ -12,6 +12,7 @@ import { importHistoryFromSupabase, isSupabaseConfigured, latestPayrollFromSupab
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
+const workspaceRoot = path.resolve(root, "..");
 loadEnv(root);
 const app = express();
 const port = process.env.PORT || 4000;
@@ -404,11 +405,21 @@ app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, r
   });
 });
 
-app.use(express.static(path.join(root, "dist")));
-app.use((_req, res) => {
-  const indexPath = path.join(root, "dist", "index.html");
+const florybalDist = path.join(root, "dist");
+const workspaceDist = path.join(workspaceRoot, "portal-dist");
+
+app.use("/florybal", express.static(florybalDist));
+app.get(/^\/florybal(?:\/.*)?$/, (_req, res) => {
+  const indexPath = path.join(florybalDist, "index.html");
   if (fs.existsSync(indexPath)) res.sendFile(indexPath);
-  else res.status(200).send("BI Florybal Chocolates API ativa. Use npm run dev para abrir a interface.");
+  else res.status(200).send("BI Florybal Chocolates API ativa. Execute o build para abrir a interface.");
+});
+
+app.use(express.static(workspaceDist));
+app.use((_req, res) => {
+  const indexPath = path.join(workspaceDist, "index.html");
+  if (fs.existsSync(indexPath)) res.sendFile(indexPath);
+  else res.status(200).send("Área de trabalho BI ativa. Execute o build para abrir a interface.");
 });
 
 app.listen(port, () => {

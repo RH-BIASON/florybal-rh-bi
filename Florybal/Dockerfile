@@ -6,20 +6,17 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package*.json ./
-COPY Florybal/package*.json ./Florybal/
-COPY Florybal/requirements.txt ./Florybal/requirements.txt
+COPY package*.json requirements.txt ./
 
 RUN npm ci \
-  && npm ci --prefix Florybal \
   && python3 -m venv /opt/venv \
   && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
-  && /opt/venv/bin/pip install --no-cache-dir -r Florybal/requirements.txt
+  && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
 RUN npm run build \
-  && mkdir -p Florybal/data/uploads Florybal/data/import-history \
+  && mkdir -p data/uploads data/import-history \
   && chown -R node:node /app
 
 ENV NODE_ENV=production

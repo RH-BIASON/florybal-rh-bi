@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: bi-rh-workspace
+    name: florybal-rh-bi
     runtime: docker
     plan: free
     region: oregon

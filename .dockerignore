@@ -1,7 +1,10 @@
-node_modules
-dist
-data
 .git
-.env
+.gitignore
+node_modules
+Florybal/node_modules
+portal-dist
+Florybal/dist
+Florybal/data
+Florybal/postgres-data
 *.pdf
 *.log
