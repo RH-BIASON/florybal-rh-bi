@@ -33,27 +33,75 @@ async function authJson(endpoint, options = {}) {
   return payload;
 }
 
+function normalizeRole(role) {
+  return role === "admin" ? "admin" : "user";
+}
+
+function tenantRoles(user) {
+  const roles = { ...(user?.app_metadata?.tenants || {}) };
+  const legacyTenant = user?.user_metadata?.tenant;
+  const legacyRole = normalizeRole(user?.user_metadata?.role);
+  if (legacyTenant && !roles[legacyTenant]) roles[legacyTenant] = legacyRole;
+  if (!legacyTenant && !roles.florybal) roles.florybal = legacyRole;
+  return roles;
+}
+
+function roleForTenant(user) {
+  const role = tenantRoles(user)[TENANT];
+  return role === "admin" || role === "user" ? role : null;
+}
+
+function withTenantRole(user) {
+  const role = roleForTenant(user);
+  if (!role) return null;
+  return {
+    ...user,
+    user_metadata: {
+      ...(user.user_metadata || {}),
+      role,
+      tenant: TENANT,
+    },
+  };
+}
+
+async function allUsers() {
+  const payload = await authJson("/auth/v1/admin/users?page=1&per_page=100", { method: "GET" });
+  return payload?.users || [];
+}
+
+async function authenticatePassword(email, password) {
+  const { url, key } = config();
+  const response = await fetch(`${url}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: key },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    throw new Error("Este e-mail ja existe em outro BI. Informe a senha atual dessa conta para vincular o acesso.");
+  }
+}
+
 export function isAuthConfigured() {
   return process.env.DISABLE_AUTH !== "true" && isSupabaseConfigured();
 }
 
 export function publicUser(user) {
-  if (!user) return null;
+  const scopedUser = withTenantRole(user);
+  if (!scopedUser) return null;
   return {
-    id: user.id,
-    email: user.email,
-    name: user.user_metadata?.name || user.email,
-    role: user.user_metadata?.role || "user",
-    tenant: user.user_metadata?.tenant || "",
-    createdAt: user.created_at,
-    lastSignInAt: user.last_sign_in_at || null,
+    id: scopedUser.id,
+    email: scopedUser.email,
+    name: scopedUser.user_metadata?.name || scopedUser.email,
+    role: scopedUser.user_metadata.role,
+    tenant: TENANT,
+    createdAt: scopedUser.created_at,
+    lastSignInAt: scopedUser.last_sign_in_at || null,
   };
 }
 
 export async function listUsers() {
   if (!isAuthConfigured()) return [];
-  const payload = await authJson("/auth/v1/admin/users?page=1&per_page=100", { method: "GET" });
-  return (payload?.users || []).filter((user) => user.user_metadata?.tenant === TENANT);
+  return (await allUsers()).filter((user) => Boolean(roleForTenant(user)));
 }
 
 export async function hasUsers() {
@@ -63,30 +111,49 @@ export async function hasUsers() {
 
 export async function createUser({ name, email, password, role = "user" }) {
   if (!isAuthConfigured()) throw new Error("Autenticacao Supabase nao configurada.");
-  return authJson("/auth/v1/admin/users", {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const scopedRole = normalizeRole(role);
+  const existing = (await allUsers()).find((user) => String(user.email || "").toLowerCase() === normalizedEmail);
+
+  if (existing) {
+    if (roleForTenant(existing)) throw new Error("Este e-mail ja possui acesso ao BI da Pegada.");
+    await authenticatePassword(normalizedEmail, password);
+    const updated = await authJson(`/auth/v1/admin/users/${encodeURIComponent(existing.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        app_metadata: {
+          ...(existing.app_metadata || {}),
+          tenants: { ...tenantRoles(existing), [TENANT]: scopedRole },
+        },
+        user_metadata: {
+          ...(existing.user_metadata || {}),
+          name: existing.user_metadata?.name || name,
+        },
+      }),
+    });
+    return { ...updated, linkedExisting: true };
+  }
+
+  const created = await authJson("/auth/v1/admin/users", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      email,
+      email: normalizedEmail,
       password,
       email_confirm: true,
-      user_metadata: {
-        name,
-        role: role === "admin" ? "admin" : "user",
-        tenant: TENANT,
-      },
+      app_metadata: { tenants: { [TENANT]: scopedRole } },
+      user_metadata: { name, role: scopedRole, tenant: TENANT },
     }),
   });
+  return { ...created, linkedExisting: false };
 }
 
 export async function loginUser({ email, password }) {
   const { url, key } = config();
   const response = await fetch(`${url}/auth/v1/token?grant_type=password`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: key,
-    },
+    headers: { "Content-Type": "application/json", apikey: key },
     body: JSON.stringify({ email, password }),
   });
   const text = await response.text();
@@ -95,24 +162,41 @@ export async function loginUser({ email, password }) {
     const detail = payload?.msg || payload?.message || payload?.error_description || payload?.error || "Login invalido.";
     throw new Error(detail);
   }
-  if (payload?.user?.user_metadata?.tenant !== TENANT) {
-    throw new Error("Este acesso nao pertence ao BI da Pegada.");
-  }
-  return payload;
+  const scopedUser = withTenantRole(payload?.user);
+  if (!scopedUser) throw new Error("Este acesso nao pertence ao BI da Pegada.");
+  return { ...payload, user: scopedUser };
 }
 
 export async function userFromToken(token) {
   const user = await authJson("/auth/v1/user", {
     method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { Authorization: `Bearer ${token}` },
   });
-  if (user?.user_metadata?.tenant !== TENANT) throw new Error("Acesso de outro ambiente.");
-  return user;
+  const scopedUser = withTenantRole(user);
+  if (!scopedUser) throw new Error("Acesso de outro ambiente.");
+  return scopedUser;
 }
 
 export async function deleteUser(userId) {
   if (!isAuthConfigured()) throw new Error("Autenticacao Supabase nao configurada.");
-  return authJson(`/auth/v1/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+  const user = await authJson(`/auth/v1/admin/users/${encodeURIComponent(userId)}`, { method: "GET" });
+  const roles = tenantRoles(user);
+  delete roles[TENANT];
+  if (!Object.keys(roles).length) {
+    return authJson(`/auth/v1/admin/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+  }
+  const metadata = { ...(user.user_metadata || {}) };
+  if (metadata.tenant === TENANT) {
+    const fallbackTenant = Object.keys(roles)[0];
+    metadata.tenant = fallbackTenant;
+    metadata.role = roles[fallbackTenant];
+  }
+  return authJson(`/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      app_metadata: { ...(user.app_metadata || {}), tenants: roles },
+      user_metadata: metadata,
+    }),
+  });
 }

@@ -114,9 +114,13 @@ app.post("/api/auth/setup", async (req, res) => {
     res.status(400).json({ error: "Informe nome, e-mail e senha com pelo menos 8 caracteres." });
     return;
   }
-  await createUser({ name, email, password, role: "admin" });
-  const session = await loginUser({ email, password });
-  res.json({ token: session.access_token, user: publicUser(session.user) });
+  try {
+    await createUser({ name, email, password, role: "admin" });
+    const session = await loginUser({ email, password });
+    res.json({ token: session.access_token, user: publicUser(session.user) });
+  } catch (error) {
+    res.status(409).json({ error: error.message || "Falha ao criar o primeiro acesso." });
+  }
 });
 
 app.post("/api/auth/login", async (req, res) => {
@@ -152,8 +156,12 @@ app.post("/api/auth/users", requireAuth, requireAdmin, async (req, res) => {
     res.status(400).json({ error: "Informe nome, e-mail e senha com pelo menos 8 caracteres." });
     return;
   }
-  const user = await createUser({ name, email, password, role });
-  res.json(publicUser(user));
+  try {
+    const user = await createUser({ name, email, password, role });
+    res.json({ ...publicUser(user), linkedExisting: Boolean(user.linkedExisting) });
+  } catch (error) {
+    res.status(409).json({ error: error.message || "Falha ao criar acesso." });
+  }
 });
 
 app.delete("/api/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {

@@ -2490,7 +2490,7 @@ function AccessPanel({ apiRequest, currentUser }) {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Falha ao criar acesso.");
       setForm({ name: "", email: "", password: "", role: "user" });
-      setMessage("Acesso criado com sucesso.");
+      setMessage(payload.linkedExisting ? "Acesso vinculado. A senha anterior deste e-mail foi mantida." : "Acesso criado com sucesso.");
       await loadUsers();
     } catch (err) {
       setMessage(err.message);
