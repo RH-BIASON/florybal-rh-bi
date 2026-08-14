@@ -13,6 +13,7 @@ import {
   Download,
   FileUp,
   Filter,
+  Gauge,
   Landmark,
   Clock3,
   RefreshCw,
@@ -29,15 +30,21 @@ import {
   AreaChart,
   Bar,
   BarChart,
+  Cell,
   CartesianGrid,
   LabelList,
   Legend,
+  ReferenceLine,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
 import { businessToday, classifyVacationUrgency } from "./vacationUrgency.js";
+import { buildCapacityAnalytics } from "./capacityAnalytics.js";
 
 const brandLogo = `${import.meta.env.BASE_URL}brand/logo-pegada.png`;
 
@@ -556,6 +563,7 @@ function App() {
             ["movement", Users, "Admissões e rescisões"],
             ["overtime", Clock3, "Horas extras"],
             ["attendance", AlertTriangle, "Faltas e atrasos"],
+            ["capacity", Gauge, "Eficiência de capacidade"],
             ["certificates", ClipboardCheck, "Atestados"],
             ["variables", BriefcaseBusiness, "Variáveis e consignados"],
             ["charges", Landmark, "Encargos"],
@@ -565,7 +573,7 @@ function App() {
             ["rubrics", BookOpenCheck, "Rubricas utilizadas"],
             ...(isAdmin ? [["imports", FileUp, "Importação"], ["access", UserPlus, "Acessos"]] : []),
           ].map(([key, Icon, label]) => (
-            <button key={key} className={view === key ? "active" : ""} onClick={() => setView(key)}>
+            <button key={key} className={view === key ? "active" : ""} onClick={() => setView(key)} title={label}>
               <Icon size={18} />
               {label}
             </button>
@@ -685,6 +693,7 @@ function App() {
         {view === "movement" && <Movement analytics={analytics} />}
         {view === "overtime" && <Overtime analytics={analytics} />}
         {view === "attendance" && <Attendance analytics={analytics} />}
+        {view === "capacity" && <CapacityEfficiency analytics={analytics} />}
         {view === "certificates" && <MedicalCertificates analytics={analytics} />}
         {view === "variables" && <Variables analytics={analytics} />}
         {view === "charges" && <Charges analytics={analytics} />}
@@ -1281,7 +1290,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
   const chargesTotal = sum(charges, (item) => item.value);
   const resignationChargesTotal = sum(summaryRows, (item) => item.charges?.resignation_charges);
 
-  return { rows, records, employees, activeEmployees, payroll: grossTotal, grossTotal, payrollGrossWithoutProLabore, proLabore, maternity, remuneration, remunerationEarnings, remunerationDiscounts, provents, vacationsTakenGross, resignationGross, resignationChargesTotal, chargesTotal, net: netTotal, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking: branchRankingWithProvisions, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop, vacationProvision, thirteenthProvision, provisionChart, vacationSchedule, schedulePeriod, scheduleReferenceDate: referenceDate, scheduleReportPositionDate };
+  return { rows, records, employees, activeEmployees, payroll: grossTotal, grossTotal, payrollGrossWithoutProLabore, proLabore, maternity, remuneration, remunerationEarnings, remunerationDiscounts, provents, vacationsTakenGross, resignationGross, resignationChargesTotal, chargesTotal, net: netTotal, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking: branchRankingWithProvisions, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop, vacationProvision, thirteenthProvision, provisionChart, vacationSchedule, schedulePeriod, scheduleReferenceDate: referenceDate, scheduleReportPositionDate, capacity: buildCapacityAnalytics(rows) };
 }
 
 function toggleSet(value, setter) {
@@ -1384,6 +1393,217 @@ function Kpi({ icon: Icon, label, value, title, tone = "", detail = "" }) {
     </article>
   );
 }
+
+const capacityQuadrantColors = {
+  "Unidade selecionada": "#2563eb",
+  "Pressão crítica": "#dc2626",
+  "Demanda ou quadro insuficiente": "#7c3aed",
+  "Risco de capacidade": "#d97706",
+  Equilibrado: "#16a34a",
+};
+
+function capacityCorrelationLabel(value) {
+  if (value === null) return "Sem variação suficiente";
+  const magnitude = Math.abs(value);
+  if (magnitude < 0.2) return "Associação baixa";
+  if (magnitude < 0.5) return value > 0 ? "Associação moderada positiva" : "Associação moderada inversa";
+  return value > 0 ? "Associação forte positiva" : "Associação forte inversa";
+}
+
+function capacityRowClass(row) {
+  const status = row.at(-1);
+  if (status === "Pressão crítica") return "capacity-row-critical";
+  if (status === "Risco de capacidade") return "capacity-row-risk";
+  if (status === "Demanda ou quadro insuficiente") return "capacity-row-demand";
+  if (status === "Equilibrado") return "capacity-row-balanced";
+  return "capacity-row-selected";
+}
+
+function CapacityBranchTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const item = payload[0].payload;
+  return (
+    <div className="capacity-tooltip">
+      <strong>{item.label}</strong>
+      {item.cnpj && <span>{item.cnpj}</span>}
+      <span>HE: {formatHours(item.overtimePer100)} / 100 colab. x mês</span>
+      <span>Faltas: {formatHours(item.absencePer100)} / 100 colab. x mês</span>
+      <em style={{ color: capacityQuadrantColors[item.quadrant] }}>{item.quadrant}</em>
+    </div>
+  );
+}
+
+function CapacityEfficiency({ analytics }) {
+  const capacity = analytics.capacity;
+  if (!capacity?.employeeMonths) {
+    return <div className="empty-state">Nenhum registro disponível para analisar no filtro atual.</div>;
+  }
+
+  const topAbsenceRole = [...capacity.byRole].sort((a, b) => b.absenceHours - a.absenceHours)[0];
+  const topOvertimeRole = [...capacity.byRole].sort((a, b) => b.overtimeHours - a.overtimeHours)[0];
+  const criticalBranches = capacity.byBranch.filter((item) => item.quadrant === "Pressão crítica");
+  const riskBranches = capacity.byBranch.filter((item) => item.quadrant === "Risco de capacidade");
+  const visibleQuadrants = [...new Set(capacity.byBranch.map((item) => item.quadrant))];
+  const balanceIsGap = capacity.balanceHours >= 0;
+  const roleRows = capacity.byRole.slice(0, 15);
+
+  return (
+    <section className="capacity-layout">
+      <div className="capacity-kpis">
+        <article className="capacity-kpi overtime">
+          <span>Horas extras</span>
+          <strong>{formatHours(capacity.overtimeHours)}</strong>
+          <small>Pagas {formatHours(capacity.paidOvertimeHours)}{capacity.bankHours ? ` · Banco ${formatHours(capacity.bankHours)}` : ""}</small>
+        </article>
+        <article className="capacity-kpi absence">
+          <span>Faltas e atrasos</span>
+          <strong>{formatHours(capacity.absenceHours)}</strong>
+          <small>{formatHours(capacity.absencePer100)} por 100 colab. x mês</small>
+        </article>
+        <article className="capacity-kpi coverage">
+          <span>Relação bruta HE / faltas</span>
+          <strong>{formatPercent(capacity.coveragePercent)}</strong>
+          <small>Comparação de volume, sem inferir produtividade</small>
+        </article>
+        <article className={`capacity-kpi ${balanceIsGap ? "critical" : "positive"}`}>
+          <span>{balanceIsGap ? "Saldo não compensado" : "HE acima das ausências"}</span>
+          <strong>{formatHours(Math.abs(capacity.balanceHours))}</strong>
+          <small>{balanceIsGap ? "Faltas superiores às HE" : "HE superiores às faltas"}</small>
+        </article>
+        <article className="capacity-kpi cost">
+          <span>Custo registrado de HE</span>
+          <strong>{compactCurrency(capacity.overtimeCost)}</strong>
+          <small>HE {currency(capacity.overtimeValue)} · Reflexos {currency(capacity.reflectionValue)}</small>
+        </article>
+      </div>
+
+      <div className="capacity-responsibility">
+        <Gauge size={19} />
+        <div>
+          <strong>Leitura gerencial do filtro</strong>
+          <span>A folha mostra simultaneidade mensal. Para provar substituição causada por ausência, o próximo nível é cruzar dia, turno, setor e produção.</span>
+        </div>
+      </div>
+
+      <section className="grid two capacity-charts">
+        <Panel title="Pressão de capacidade por competência" icon={TrendingUp} subtitle="Horas normalizadas por 100 colaboradores-mês; períodos com quadros diferentes permanecem comparáveis.">
+          <Chart>
+            <BarChart data={capacity.byPeriod} margin={{ top: 14, right: 8, left: 4, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="label" />
+              <YAxis tickFormatter={(value) => `${Number(value).toLocaleString("pt-BR")}h`} />
+              <Tooltip formatter={(value, name) => [formatHours(value), name]} />
+              <Legend />
+              <Bar dataKey="overtimePer100" name="HE / 100 colab. x mês" fill="#2563eb" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="absencePer100" name="Faltas / 100 colab. x mês" fill="#d97706" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </Chart>
+        </Panel>
+
+        <Panel title="Quadrante das filiais" icon={Landmark} subtitle="Compara intensidade, não volume bruto. Linhas pontilhadas representam a mediana das filiais no filtro.">
+          <Chart>
+            <ScatterChart margin={{ top: 14, right: 18, left: 4, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" dataKey="overtimePer100" name="HE" unit="h" tick={{ fontSize: 11 }} />
+              <YAxis type="number" dataKey="absencePer100" name="Faltas" unit="h" tick={{ fontSize: 11 }} />
+              <ZAxis type="number" dataKey="employeeMonths" range={[80, 430]} />
+              {capacity.byBranch.length > 1 && <ReferenceLine x={capacity.medianOvertime} stroke="#64748b" strokeDasharray="5 5" />}
+              {capacity.byBranch.length > 1 && <ReferenceLine y={capacity.medianAbsence} stroke="#64748b" strokeDasharray="5 5" />}
+              <Tooltip content={<CapacityBranchTooltip />} />
+              <Scatter data={capacity.byBranch}>
+                {capacity.byBranch.map((item) => <Cell key={item.key} fill={capacityQuadrantColors[item.quadrant]} />)}
+              </Scatter>
+            </ScatterChart>
+          </Chart>
+          <div className="capacity-legend">
+            {visibleQuadrants.map((label) => (
+              <span key={label}><i style={{ background: capacityQuadrantColors[label] }} />{label}</span>
+            ))}
+          </div>
+        </Panel>
+      </section>
+
+      <section className="capacity-diagnostic-grid">
+        <article>
+          <span>Incidência de HE</span>
+          <strong>{formatPercent(capacity.overtimeIncidencePercent)}</strong>
+          <small>{capacity.withOvertime.toLocaleString("pt-BR")} de {capacity.employeeMonths.toLocaleString("pt-BR")} colab. x mês</small>
+        </article>
+        <article>
+          <span>Incidência de faltas</span>
+          <strong>{formatPercent(capacity.absenceIncidencePercent)}</strong>
+          <small>{capacity.withAbsence.toLocaleString("pt-BR")} de {capacity.employeeMonths.toLocaleString("pt-BR")} colab. x mês</small>
+        </article>
+        <article>
+          <span>Sobreposição mensal</span>
+          <strong>{formatPercent(capacity.overlapOfOvertimePercent)}</strong>
+          <small>Dos registros com HE também tiveram falta no mês</small>
+        </article>
+        <article>
+          <span>Associação mensal</span>
+          <strong>{capacity.correlation === null ? "-" : capacity.correlation.toLocaleString("pt-BR", { minimumFractionDigits: 3 })}</strong>
+          <small>{capacityCorrelationLabel(capacity.correlation)}</small>
+        </article>
+      </section>
+
+      <section className="grid two">
+        <Panel title="Diagnóstico automático" icon={Gauge}>
+          <ul className="capacity-insights">
+            <li><strong>Concentração de faltas:</strong> os 20% com maior volume representam {formatPercent(capacity.absenceTop20Share)} das horas.</li>
+            <li><strong>Concentração de HE:</strong> os 20% com maior volume representam {formatPercent(capacity.overtimeTop20Share)} das horas.</li>
+            <li><strong>Maior pressão por faltas:</strong> {topAbsenceRole?.label || "-"} com {formatHours(topAbsenceRole?.absenceHours)}.</li>
+            <li><strong>Maior pressão por HE:</strong> {topOvertimeRole?.label || "-"} com {formatHours(topOvertimeRole?.overtimeHours)}.</li>
+            <li><strong>Relação mensal:</strong> {capacityCorrelationLabel(capacity.correlation).toLocaleLowerCase("pt-BR")}; o dado isolado não comprova que a falta gerou a HE.</li>
+          </ul>
+        </Panel>
+        <Panel title="Prioridades de gestão" icon={ClipboardCheck}>
+          <ol className="capacity-actions">
+            <li>Cruzar ponto, turno, setor e gestor nas filiais com maior pressão normalizada.</li>
+            <li>Tratar reincidências dentro dos 20% mais concentrados, separando causas justificadas e não justificadas.</li>
+            <li>Revisar cobertura, polivalência e dimensionamento dos cargos que concentram horas extras.</li>
+            <li>Medir produção por hora disponível antes e depois da ação para confirmar ganho real de produtividade.</li>
+          </ol>
+          <div className="capacity-priority-summary">
+            <span><strong>{criticalBranches.length}</strong> filiais em pressão crítica</span>
+            <span><strong>{riskBranches.length}</strong> filiais com risco de capacidade</span>
+          </div>
+        </Panel>
+      </section>
+
+      <Panel title="Gargalos por cargo" icon={Users} wide subtitle="Volumes e intensidades calculados somente com os períodos e filiais selecionados.">
+        <DataTable
+          columns={["Cargo", "Colab. x mês", "HE", "Faltas/atrasos", "HE / 100", "Faltas / 100", "Incidência de faltas"]}
+          rows={roleRows.map((item) => [
+            item.label,
+            item.employeeMonths.toLocaleString("pt-BR"),
+            formatHours(item.overtimeHours),
+            formatHours(item.absenceHours),
+            formatHours(item.overtimePer100),
+            formatHours(item.absencePer100),
+            formatPercent((item.withAbsence / item.employeeMonths) * 100),
+          ])}
+        />
+      </Panel>
+
+      <Panel title="Comparativo normalizado por filial" icon={Landmark} wide subtitle="Evita que uma filial maior apareça como pior apenas por ter mais colaboradores.">
+        <DataTable
+          columns={["Filial", "CNPJ", "Colab. x mês", "HE / 100", "Faltas / 100", "Relação HE / faltas", "Situação"]}
+          rows={capacity.byBranch.map((item) => [
+            item.label,
+            item.cnpj || "-",
+            item.employeeMonths.toLocaleString("pt-BR"),
+            formatHours(item.overtimePer100),
+            formatHours(item.absencePer100),
+            formatPercent(item.coveragePercent),
+            item.quadrant,
+          ])}
+          rowClassName={capacityRowClass}
+        />
+      </Panel>
+    </section>
+  );
+}
+
 
 function Overview({ analytics }) {
   return (
@@ -2908,6 +3128,36 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
     ],
     branchRankingExportRows(analytics.branchRanking),
     { currencyKeys: new Set(["moneyValue"]) },
+  );
+
+  addSheet(
+    workbook,
+    "Eficiencia Capacidade",
+    [
+      { header: "Filial", key: "branch", width: 34 },
+      { header: "CNPJ", key: "cnpj", width: 20 },
+      { header: "Colab. x mes", key: "employeeMonths", width: 14 },
+      { header: "Horas extras", key: "overtimeHours", width: 15 },
+      { header: "Faltas e atrasos", key: "absenceHours", width: 17 },
+      { header: "HE / 100", key: "overtimePer100", width: 14 },
+      { header: "Faltas / 100", key: "absencePer100", width: 14 },
+      { header: "Relacao HE / faltas %", key: "coveragePercent", width: 21 },
+      { header: "Custo HE + reflexos", key: "overtimeCost", width: 20 },
+      { header: "Situacao", key: "quadrant", width: 30 },
+    ],
+    analytics.capacity.byBranch.map((item) => ({
+      branch: item.label,
+      cnpj: item.cnpj || "",
+      employeeMonths: item.employeeMonths,
+      overtimeHours: item.overtimeHours,
+      absenceHours: item.absenceHours,
+      overtimePer100: item.overtimePer100,
+      absencePer100: item.absencePer100,
+      coveragePercent: item.coveragePercent,
+      overtimeCost: item.overtimeCost,
+      quadrant: item.quadrant,
+    })),
+    { currencyKeys: new Set(["overtimeCost"]) },
   );
 
   addSheet(workbook, "Colaboradores", baseColumns(), rows.map(baseEmployeeRow), {

@@ -8,14 +8,15 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from parse_payroll import absence_kind, build_dataset, is_classified_event, loan_kind, medical_certificate_kind, overtime_reflex_kind, vacation_kind, vacation_termination_kind
 
+SOURCE_ROOT = ROOT if (ROOT / "FOPAG Florybal 122025.pdf").exists() else ROOT.parent.parent / "Florybal"
 PDFS = [
-    ROOT / "FOPAG Florybal 122025.pdf",
-    ROOT / "FOPAG Florybal 012026.pdf",
-    ROOT / "FOPAG Florybal 022026.pdf",
-    ROOT / "FOPAG Florybal 032026.pdf",
-    ROOT / "FOPAG Florybal 042026.pdf",
+    SOURCE_ROOT / "FOPAG Florybal 122025.pdf",
+    SOURCE_ROOT / "FOPAG Florybal 012026.pdf",
+    SOURCE_ROOT / "FOPAG Florybal 022026.pdf",
+    SOURCE_ROOT / "FOPAG Florybal 032026.pdf",
+    SOURCE_ROOT / "FOPAG Florybal 042026.pdf",
 ]
-MAY_PDF = ROOT / "FOPAG Florybal 052026.pdf"
+MAY_PDF = SOURCE_ROOT / "FOPAG Florybal 052026.pdf"
 
 
 class PayrollParserTests(unittest.TestCase):

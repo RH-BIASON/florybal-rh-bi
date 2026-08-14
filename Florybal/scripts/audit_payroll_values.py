@@ -9,6 +9,7 @@ import fitz
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / "data" / "payroll.json"
+SOURCE_ROOT = ROOT if (ROOT / "FOPAG Florybal 122025.pdf").exists() else ROOT.parent.parent / "Florybal"
 PDF_NAME_RE = re.compile(r"(FOPAG Florybal .+\.pdf)$")
 EMPLOYEE_RE = re.compile(r"^(\d{1,6})\s{2,}([A-ZÁÉÍÓÚÂÊÔÃÕÇÜ0-9 .'\-]+)$")
 MONEY_RE = re.compile(r"^-?\d{1,3}(?:\.\d{3})*,\d{2}$|^-?\d+,\d{2}$")
@@ -26,7 +27,7 @@ def br_number(value):
 def source_pdf_path(source_file):
     match = PDF_NAME_RE.search(source_file)
     name = match.group(1) if match else source_file
-    path = ROOT / name
+    path = SOURCE_ROOT / name
     if not path.exists():
         raise FileNotFoundError(f"PDF original nao encontrado para {source_file}: {path}")
     return path

@@ -17,6 +17,7 @@ __pycache__/
 Florybal/.env
 Pegada/.env
 qa/
+.qa/
 Florybal/qa/
 Pegada/qa/
 Florybal/.agents/
