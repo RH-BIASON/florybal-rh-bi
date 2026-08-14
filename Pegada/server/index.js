@@ -9,14 +9,13 @@ import { createUser, deleteUser, hasUsers, isAuthConfigured, listUsers, loginUse
 import { mergePayrollDatasets, normalizeVacationScheduleCompetence, removePayrollPeriods } from "./datasetMerge.js";
 import { loadEnv } from "./env.js";
 import { importHistoryFromSupabase, isSupabaseConfigured, latestPayrollFromSupabase, saveImportToSupabase } from "./supabaseStore.js";
-import pegadaApp from "../../Pegada/server/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const workspaceRoot = path.resolve(root, "..");
 loadEnv(root);
 const app = express();
-const port = process.env.PORT || 4000;
+const port = process.env.PORT || 4001;
 const pythonBin = process.env.PYTHON_BIN || "python";
 const dataDir = path.join(root, "data");
 const uploadDir = path.join(dataDir, "uploads");
@@ -33,10 +32,9 @@ const upload = multer({ storage });
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
-app.use((req, res, next) => {
-  if (req.url === "/api/pegada" || req.url.startsWith("/api/pegada/") || req.url === "/pegada" || req.url.startsWith("/pegada/")) {
-    pegadaApp(req, res, next);
-    return;
+app.use((req, _res, next) => {
+  if (req.url === "/api/pegada" || req.url.startsWith("/api/pegada/")) {
+    req.url = req.url.replace(/^\/api\/pegada/, "/api");
   }
   next();
 });
@@ -145,6 +143,10 @@ app.get("/api/auth/users", requireAuth, requireAdmin, async (_req, res) => {
 });
 
 app.post("/api/auth/users", requireAuth, requireAdmin, async (req, res) => {
+  if (!isAuthConfigured()) {
+    res.status(503).json({ error: "Gestao de acessos disponivel quando o Supabase estiver configurado." });
+    return;
+  }
   const { name, email, password, role } = req.body || {};
   if (!name || !email || !password || password.length < 8) {
     res.status(400).json({ error: "Informe nome, e-mail e senha com pelo menos 8 caracteres." });
@@ -155,6 +157,10 @@ app.post("/api/auth/users", requireAuth, requireAdmin, async (req, res) => {
 });
 
 app.delete("/api/auth/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  if (!isAuthConfigured()) {
+    res.status(503).json({ error: "Gestao de acessos disponivel quando o Supabase estiver configurado." });
+    return;
+  }
   if (req.params.id === req.user?.id) {
     res.status(400).json({ error: "Voce nao pode excluir o proprio acesso logado." });
     return;
@@ -414,14 +420,14 @@ app.post("/api/upload", requireAuth, requireAdmin, upload.array("pdfs"), (req, r
   });
 });
 
-const florybalDist = path.join(root, "dist");
+const pegadaDist = path.join(root, "dist");
 const workspaceDist = path.join(workspaceRoot, "portal-dist");
 
-app.use("/florybal", express.static(florybalDist));
-app.get(/^\/florybal(?:\/.*)?$/, (_req, res) => {
-  const indexPath = path.join(florybalDist, "index.html");
+app.use("/pegada", express.static(pegadaDist));
+app.get(/^\/pegada(?:\/.*)?$/, (_req, res) => {
+  const indexPath = path.join(pegadaDist, "index.html");
   if (fs.existsSync(indexPath)) res.sendFile(indexPath);
-  else res.status(200).send("BI Florybal Chocolates API ativa. Execute o build para abrir a interface.");
+  else res.status(200).send("BI Calcados Pegada API ativa. Execute o build para abrir a interface.");
 });
 
 app.use(express.static(workspaceDist));
@@ -431,6 +437,11 @@ app.use((_req, res) => {
   else res.status(200).send("Área de trabalho BI ativa. Execute o build para abrir a interface.");
 });
 
-app.listen(port, () => {
-  console.log(`BI Florybal Chocolates API em http://127.0.0.1:${port}`);
-});
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule) {
+  app.listen(port, () => {
+    console.log(`BI Calcados Pegada API em http://127.0.0.1:${port}`);
+  });
+}
+
+export default app;

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: bi-rh-workspace
+    name: pegada-rh-bi
     runtime: docker
     plan: free
     region: oregon
@@ -8,15 +8,15 @@ services:
     autoDeploy: true
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    healthCheckPath: /api/health
+    healthCheckPath: /api/pegada/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: SUPABASE_URL
-        value: https://qpulnvqtsdjtkglkvmtq.supabase.co
+        sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
-        value: payroll-pdfs
-      - key: PEGADA_SUPABASE_STORAGE_BUCKET
         value: pegada-payroll-pdfs
+      - key: SUPABASE_WRITE_ANALYTICS_TABLES
+        value: "false"

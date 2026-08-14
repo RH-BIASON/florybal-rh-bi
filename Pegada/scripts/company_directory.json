@@ -1,0 +1,30 @@
+{
+  "company": "CALCADOS PEGADA NORDESTE LTDA",
+  "displayName": "Calcados Pegada Nordeste LTDA",
+  "rootCnpj": "06.269.953",
+  "establishments": {
+    "0005": { "internalCode": "60005", "name": "Pegada Nordeste - RUY BARBOZA", "shortName": "Pegada Nordeste", "cnpj": "06.269.953/0001-36" },
+    "0012": { "internalCode": "60012", "name": "Nordeste FL 02 - DOIS IRMAOS", "shortName": "Nordeste FL 02", "cnpj": "06.269.953/0004-89" },
+    "0020": { "internalCode": "60020", "name": "Nordeste Ltda FL 07", "shortName": "Nordeste Ltda FL 07", "cnpj": "06.269.953/0008-02" },
+    "0021": { "internalCode": "60021", "name": "Nordeste Ltda FL 08", "shortName": "Nordeste Ltda FL 08", "cnpj": "06.269.953/0009-93" },
+    "0022": { "internalCode": "60022", "name": "Nordeste Ltda FL 09", "shortName": "Nordeste Ltda FL 09", "cnpj": "06.269.953/0010-27" },
+    "0023": { "internalCode": "60023", "name": "Nordeste Ltda FL 10", "shortName": "Nordeste Ltda FL 10", "cnpj": "06.269.953/0011-08" },
+    "0030": { "internalCode": "60030", "name": "Show Room FL 17", "shortName": "Show Room FL 17", "cnpj": "06.269.953/0017-01" },
+    "0050": { "internalCode": "60050", "name": "Dois Irmaos FL 13-LJ", "shortName": "Dois Irmaos FL 13-LJ", "cnpj": "06.269.953/0014-50" },
+    "0051": { "internalCode": "60051", "name": "Sao Paulo FL 14-LJ", "shortName": "Sao Paulo FL 14-LJ", "cnpj": "06.269.953/0015-31" },
+    "0052": { "internalCode": "60052", "name": "Metro SP FL 15-LJ", "shortName": "Metro SP FL 15-LJ", "cnpj": "06.269.953/0016-12" },
+    "0053": { "internalCode": "60053", "name": "Analia FL 16-LJ", "shortName": "Analia FL 16-LJ", "cnpj": "06.269.953/0018-84" },
+    "0054": { "internalCode": "60054", "name": "Canoas FL 18 LJ", "shortName": "Canoas FL 18 LJ", "cnpj": "06.269.953/0019-65" },
+    "0055": { "internalCode": "60055", "name": "Iguatemi FL 19 LJ", "shortName": "Iguatemi FL 19 LJ", "cnpj": "06.269.953/0020-07" },
+    "0056": { "internalCode": "60056", "name": "Praia de Belas FL 20", "shortName": "Praia de Belas FL 20", "cnpj": "06.269.953/0021-80" },
+    "0058": { "internalCode": "60058", "name": "BarraShopping FL 21 LJ", "shortName": "BarraShopping FL 21 LJ", "cnpj": "06.269.953/0022-60" },
+    "0059": { "internalCode": "60059", "name": "Bourbon Ipiranga FL 22", "shortName": "Bourbon Ipiranga FL 22", "cnpj": "06.269.953/0023-41" },
+    "0060": { "internalCode": "60060", "name": "Outlet FL 23", "shortName": "Outlet FL 23", "cnpj": "06.269.953/0024-22" },
+    "0066": { "internalCode": "60066", "name": "Tambore SP FL 25", "shortName": "Tambore SP FL 25", "cnpj": "06.269.953/0026-94" },
+    "0067": { "internalCode": "60067", "name": "Garten SC FL 26", "shortName": "Garten SC FL 26", "cnpj": "06.269.953/0027-75" },
+    "0068": { "internalCode": "60068", "name": "Neumarkt SC FL 27", "shortName": "Neumarkt SC FL 27", "cnpj": "06.269.953/0028-56" },
+    "0069": { "internalCode": "60069", "name": "Balneario Camboriu FL 28", "shortName": "Balneario Camboriu FL 28", "cnpj": "06.269.953/0029-37" },
+    "0070": { "internalCode": "60070", "name": "Salvador FL 29", "shortName": "Salvador FL 29", "cnpj": "06.269.953/0030-70" },
+    "0071": { "internalCode": "60071", "name": "Salvador FL 31", "shortName": "Salvador FL 31", "cnpj": "06.269.953/0032-32" }
+  }
+}

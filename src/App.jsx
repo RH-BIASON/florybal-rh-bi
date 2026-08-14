@@ -26,7 +26,7 @@ const environments = [
   {
     slug: "pegada",
     name: "Calçados Pegada",
-    href: "/pegada/",
+    href: "/pegada/?reauth=1",
     logo: pegadaLogo,
     className: "pegada",
   },
@@ -108,12 +108,6 @@ function WorkspaceHome() {
         onPointerMove={moveModules}
         onPointerLeave={resetModules}
       >
-        <div className="workspace-heading">
-          <span>Ambientes de BI</span>
-          <h1>Escolha seu ambiente</h1>
-          <p>Dados, usuários e importações permanecem separados em cada ambiente.</p>
-        </div>
-
         <div className="workspace-orbit" aria-hidden="true">
           {workspaceModules.map(({ label, detail, icon: Icon, position, depth, visual }) => (
             <div className={`orbit-position ${position}`} data-depth={depth} key={label}>

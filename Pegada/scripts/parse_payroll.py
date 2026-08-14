@@ -7,20 +7,20 @@ from pathlib import Path
 
 import fitz
 
-from report_parsers import DIRECTORY, branch_info, parse_special_report, report_type
+from report_parsers import DIRECTORY, branch_info, br_number, normalized, parse_special_report, report_type, rows_by_y, text_in_x, value_in_x
 
 
 RULES_PATH = Path(__file__).with_name("event_rules.json")
 MONEY_RE = re.compile(r"^-?\d{1,3}(?:\.\d{3})*,\d{2}$|^-?\d+,\d{2}$")
-EMPLOYEE_RE = re.compile(r"^(\d{1,6})\s{2,}([A-ZÁÉÍÓÚÂÊÔÃÕÇÜ0-9 .'\-]+)$")
+EMPLOYEE_RE = re.compile(r"^(\d{1,10})\s+-\s+(.+)$")
 EVENT_RE = re.compile(r"^(\d{5})\s+(.+?)\s*$")
 PERIOD_RE = re.compile(r"Folhas:\s*(\d{2}/\d{2}/\d{4})\s+a\s+(\d{2}/\d{2}/\d{4})")
-BRANCH_RE = re.compile(r"^(\d{3})\s+-\s+(.+)$")
+BRANCH_RE = re.compile(r"^(\d{4})\s+-\s+(.+)$")
 EVENT_RULES = json.loads(RULES_PATH.read_text(encoding="utf-8"))
 FGTS_CODES = {"00474", "00475", "00476"}
-INSS_COMPANY_CODES = {"00850", "00853", "00856"}
-OFFICIAL_FGTS_CODES = {"00473", "00474", "00475", "00476"}
-OFFICIAL_INSS_COMPANY_CODES = {"00849", "00852", "00855"}
+INSS_COMPANY_CODES = set()
+OFFICIAL_FGTS_CODES = {"00474", "00475", "00476"}
+OFFICIAL_INSS_COMPANY_CODES = set()
 RESIGNATION_CHARGE_CODES = {"00478", "00479"}
 
 
@@ -67,7 +67,7 @@ def format_cnpj(value):
 def page_context(lines):
     period = None
     branch = None
-    company = next((line for line in lines[:12] if "FLORYBAL CHOCOLATES" in line.upper()), DIRECTORY["company"])
+    company = next((line for line in lines[:12] if "PEGADA NORDESTE" in line.upper()), DIRECTORY["company"])
     cnpj_match = re.search(r"CNPJ:\s*(\d{8}/\d{4}-\d{2})", " ".join(lines[:25]), re.I)
     for line in lines[:25]:
         period_match = PERIOD_RE.search(line)
@@ -82,19 +82,12 @@ def page_context(lines):
         branch_match = BRANCH_RE.match(line)
         if branch_match:
             branch_name = normalize_branch_name(branch_match.group(2))
-            branch = {
-                "code": branch_match.group(1),
-                "name": branch_name,
-                "label": f"{branch_match.group(1)} - {branch_name}",
-                "company": company,
-                "cnpj": format_cnpj(cnpj_match.group(1)) if cnpj_match else "",
-                "establishment": branch_name,
-                "workplace": branch_name,
-            }
-            if not branch["cnpj"]:
-                directory_branch = branch_info(branch["code"], branch_name)
-                if directory_branch:
-                    branch.update(directory_branch)
+            directory_branch = branch_info(branch_match.group(1), branch_name)
+            if not directory_branch:
+                continue
+            branch = directory_branch
+            if cnpj_match:
+                branch["cnpj"] = format_cnpj(cnpj_match.group(1))
     return period, branch
 
 
@@ -143,6 +136,53 @@ def parse_events(lines):
             }
         )
     return events
+
+
+EVENT_COLUMNS = (
+    {"side": "earnings", "code": (30, 57), "description": (57, 215), "quantity": (215, 250), "value": (250, 295)},
+    {"side": "discounts", "code": (295, 315), "description": (315, 475), "quantity": (475, 510), "value": (510, 553)},
+    {"side": "bases", "code": (553, 573), "description": (573, 725), "quantity": (725, 760), "value": (760, 825)},
+)
+
+
+def coordinate_events(row):
+    events = []
+    for column in EVENT_COLUMNS:
+        code = text_in_x(row, *column["code"])
+        if not re.fullmatch(r"\d{5}", code):
+            continue
+        description = text_in_x(row, *column["description"])
+        quantity = value_in_x(row, *column["quantity"])
+        value = value_in_x(row, *column["value"])
+        events.append({
+            "code": code,
+            "description": re.sub(r"\s+", " ", description).strip(),
+            "quantity": quantity,
+            "value": value or 0.0,
+            "side": column["side"],
+        })
+    return events
+
+
+def employee_header(row):
+    if "Contrato:" not in row["text"]:
+        return None
+    identity = text_in_x(row, 75, 300)
+    identity_match = re.match(r"^(\d{1,10})\s+-\s+(.+)$", identity)
+    if not identity_match:
+        return None
+    contract, name = identity_match.groups()
+    admission_match = re.search(r"Admissão:\s*(\d{2}/\d{2}/\d{4})", row["text"], re.I)
+    job = text_in_x(row, 385, 610).replace("Cargo:", "").strip()
+    salary_text = text_in_x(row, 610, 730)
+    salary_values = re.findall(r"-?\d{1,3}(?:\.\d{3})*,\d{2}|-?\d+,\d{2}", salary_text)
+    return {
+        "contract": contract,
+        "name": name,
+        "admissionDate": parse_date(admission_match.group(1)) if admission_match else None,
+        "jobTitle": job,
+        "salary": br_money(salary_values[-1]) if salary_values else 0.0,
+    }
 
 
 def event_matches_rule(event, rule):
@@ -287,42 +327,102 @@ def extract_charge_summaries(path):
     summaries = []
     doc = fitz.open(path)
     current_period = None
+    current_summary = None
+
+    def finish_summary():
+        nonlocal current_summary
+        if not current_summary:
+            return
+        events = current_summary.pop("events")
+        by_code = {event["code"]: event for event in events}
+        event_value = lambda code: by_code.get(code, {}).get("value", 0.0)
+        remuneration_earnings = round(sum(event["value"] for event in events if event.get("side") == "earnings" and event_kind(event, "remuneration_earnings")), 2)
+        remuneration_discounts = round(sum(event["value"] for event in events if event.get("side") == "discounts" and event_kind(event, "remuneration_discounts")), 2)
+        current_summary["events"] = events
+        current_summary["charges"] = {
+            "fgts": round(sum(event_value(code) for code in FGTS_CODES), 2),
+            "resignation_charges": round(sum(event_value(code) for code in RESIGNATION_CHARGE_CODES), 2),
+            "inss_company": 0.0,
+            "rat_fap": 0.0,
+            "third_parties": 0.0,
+        }
+        current_summary["payroll"].update({
+            "vacationsTakenGross": round(event_value("71198") + event_value("71199"), 2),
+            "vacationsNet": event_value("00498"),
+            "resignationsNet": event_value("00499"),
+            "payrollNet": event_value("00500"),
+            "remunerationEarnings": remuneration_earnings,
+            "remunerationDiscounts": remuneration_discounts,
+            "remunerationNet": round(remuneration_earnings - remuneration_discounts, 2),
+            "maternity": round(sum(event["value"] for event in events if event_kind(event, "maternity")), 2),
+            "proLabore": round(sum(event["value"] for event in events if event_kind(event, "pro_labore")), 2),
+        })
+        summaries.append(current_summary)
+        current_summary = None
+
     for page_index, page in enumerate(doc, 1):
         lines = clean_lines(page.get_text())
         period, branch = page_context(lines)
         current_period = period or current_period
-        total_line = next((line for line in lines[:30] if line.startswith("Total do(a)")), None)
-        if not current_period or not total_line:
-            continue
-        is_grand_total = total_line.strip() == "Total do(a) FLORYBAL CHOCOLATES LTDA"
-        if not branch and not is_grand_total:
-            continue
-        summaries.append(
-            {
+        total_line = next((line for line in lines if line.startswith("Total do(a)")), None)
+        if total_line:
+            finish_summary()
+            is_grand_total = "CALCADOS PEGADA NORDESTE LTDA" in normalized(total_line)
+            if current_period and (branch or is_grand_total):
+                current_summary = {
                 "sourceFile": path.name,
                 "sourcePage": page_index,
                 "period": current_period,
                 "branch": None if is_grand_total else branch,
                 "isGrandTotal": is_grand_total,
-                "charges": {key: round(value, 2) for key, value in charge_values_after_codes(lines).items()},
-                "payroll": {
-                    "vacationsTakenGross": sum_summary_word_values(page, {"71198", "71199"}),
-                    "vacationsNet": sum_summary_word_values(page, {"00498"}),
-                    "resignationsNet": sum_summary_word_values(page, {"00499"}),
-                    "payrollNet": sum_summary_word_values(page, {"00500"}),
-                },
+                "company": DIRECTORY["company"],
+                "cnpj": "" if is_grand_total else branch.get("cnpj", ""),
+                "counts": {},
+                "events": [],
+                "payroll": {},
+                }
+        if not current_summary:
+            continue
+
+        for row in rows_by_y(page):
+            current_summary["events"].extend(coordinate_events(row))
+            base_label = normalized(text_in_x(row, 553, 760)).replace("*", "").strip()
+            base_value = text_in_x(row, 760, 825).replace(".", "").replace(",", ".")
+            number = float(base_value) if re.fullmatch(r"\d+(?:\.\d+)?", base_value) else None
+            count_mapping = {
+                "TOTAL DE DIRETORES": "directors",
+                "TOTAL DE AUTONOMOS": "autonomous",
+                "TOTAL DE CONTRATOS DE FUNCIONARIOS": "contracts",
+                "ATIVOS": "active",
+                "AFASTADOS": "onLeave",
+                "RESCINDIDOS": "terminated",
+                "TOTAL ADMITIDOS NO PERIODO": "admissions",
+                "TOTAL RESCINDIDOS NO PERIODO": "resignations",
             }
-        )
+            if base_label in count_mapping and number is not None:
+                current_summary["counts"][count_mapping[base_label]] = int(number)
+            if base_label == "TOTAL DOS SALARIOS" and number is not None:
+                current_summary["payroll"]["totalSalaries"] = number
+
+            normalized_row = normalized(row["text"])
+            if "TOTAL DE VENCIMENTOS:" in normalized_row and "TOTAL DE DESCONTOS:" in normalized_row:
+                current_summary["payroll"].update({
+                    "gross": value_in_x(row, 250, 295) or 0.0,
+                    "discounts": value_in_x(row, 510, 553) or 0.0,
+                    "net": value_in_x(row, 760, 825) or 0.0,
+                })
+                finish_summary()
+    finish_summary()
     return summaries
 
 
 def extract_employee(chunk, period, branch, source_file, page_number):
     lines = chunk["lines"]
     text = "\n".join(lines)
-    events = parse_events(lines)
-    admission = re.search(r"Admissão\s+(\d{2}/\d{2}/\d{4})", text)
-    resignation = re.search(r"Rescisão\s+(\d{2}/\d{2}/\d{4})", text)
-    job = re.search(r"Cargo\.+\s*([^\n]+)", text)
+    events = chunk.get("events") or parse_events(lines)
+    admission = re.search(r"Admissão:?\s+(\d{2}/\d{2}/\d{4})", text)
+    resignation = re.search(r"Rescisão:?\s+(\d{2}/\d{2}/\d{4})", text)
+    job = re.search(r"Cargo:?\s*([^\n]+)", text)
     vacation = re.search(r"(?:Últimas|Ultimas) Férias de\s+(\d{2}/\d{2}/\d{4})\s+até\s+(\d{2}/\d{2}/\d{4})", text)
 
     overtime_events = [event for event in events if overtime_kind(event)]
@@ -335,21 +435,30 @@ def extract_employee(chunk, period, branch, source_file, page_number):
     vacation_termination_events = [event for event in events if vacation_termination_kind(event)]
     unclassified_events = [event for event in events if not is_classified_event(event)]
 
-    totals = {
+    totals = chunk.get("totals") or {
         "gross": amount_after_exact_line(lines, ["Total dos Vencimentos"]),
         "discounts": amount_after_exact_line(lines, ["Total dos Descontos"]),
         "net": amount_after_exact_line(lines, ["Líquido"]),
-        "salary": amount_after_exact_line(lines, ["Salário Mensal"]),
+        "salary": chunk.get("salary") or amount_after_exact_line(lines, ["Salário Mensal", "Salário Hora"]),
     }
+    totals.setdefault("salary", chunk.get("salary") or 0.0)
 
     charges = {
-        "inss_employee": sum(event["value"] for event in events if "INSS sobre" in event["description"]),
+        "inss_employee": sum(
+            event["value"]
+            for event in events
+            if event.get("side") == "discounts" and event["code"] in {"00381", "00382", "00383", "00384"}
+        ),
         "inss_company": sum_amounts_after_codes(lines, INSS_COMPANY_CODES),
         "fgts": sum_amounts_after_codes(lines, FGTS_CODES),
         "rat_fap": sum_amounts_after_labels(text, ["RATxFAP"]),
         "third_parties": sum_amounts_after_labels(text, ["Terceiros Emp.", "Terc. Parte Empresa"]),
         "gps_total": sum_amounts_after_labels(text, ["TOTAL GPS"]),
-        "irrf": sum(event["value"] for event in events if "I.R.F" in event["description"] or "IRF" in event["description"]),
+        "irrf": sum(
+            event["value"]
+            for event in events
+            if event.get("side") == "discounts" and event["code"] in {"00391", "00392"}
+        ),
     }
 
     overtime_hours = round(sum(event["quantity"] or 0 for event in overtime_events), 2)
@@ -357,7 +466,7 @@ def extract_employee(chunk, period, branch, source_file, page_number):
     overtime_reflex_value = round(sum(event["value"] for event in overtime_reflex_events), 2)
     medical_certificate_hours = round(sum(event["quantity"] or 0 for event in medical_certificate_events), 2)
     medical_certificate_value = round(sum(event["value"] for event in medical_certificate_events), 2)
-    absence_hours = round(sum(event["quantity"] or 0 for event in absence_events), 2)
+    absence_hours = round(sum(event["quantity"] or 0 for event in absence_events if event["code"] in {"00201", "00202"}), 2)
     absence_value = round(sum(event["value"] for event in absence_events), 2)
     loan_value = round(sum(event["value"] for event in loan_events), 2)
 
@@ -370,7 +479,7 @@ def extract_employee(chunk, period, branch, source_file, page_number):
         vacation_days = (end - start).days + 1
 
     validation = []
-    if not admission:
+    if not (chunk.get("admissionDate") or admission):
         validation.append("Colaborador sem data de admissão extraída")
     if totals["gross"] and totals["discounts"] and totals["net"]:
         if abs((totals["gross"] - totals["discounts"]) - totals["net"]) > 2.0:
@@ -384,18 +493,43 @@ def extract_employee(chunk, period, branch, source_file, page_number):
     if totals["net"] < 0:
         validation.append("Líquido negativo")
 
+    remuneration_earnings = round(sum(event["value"] for event in events if event.get("side") == "earnings" and event_kind(event, "remuneration_earnings")), 2)
+    remuneration_discounts = round(sum(event["value"] for event in events if event.get("side") == "discounts" and event_kind(event, "remuneration_discounts")), 2)
+    maternity_value = round(sum(event["value"] for event in events if event_kind(event, "maternity")), 2)
+    pro_labore_value = round(sum(event["value"] for event in events if event_kind(event, "pro_labore")), 2)
+    normalized_job = (chunk.get("jobTitle") or (job.group(1).strip() if job else "")).lower()
+    if pro_labore_value or "diretor" in normalized_job or "sócio" in normalized_job or "socio" in normalized_job:
+        workforce_type = "pro_labore"
+    elif "aprendiz" in normalized_job:
+        workforce_type = "apprentice"
+    elif "tempor" in normalized_job:
+        workforce_type = "temporary"
+    elif any(event["code"] in {"00006", "00007", "00662", "00772"} for event in events):
+        workforce_type = "leave"
+    elif any(event["code"] == "00111" for event in events):
+        workforce_type = "autonomous"
+    else:
+        workforce_type = "employee"
+
     return {
         "id": f"{source_file}:{page_number}:{chunk['contract']}",
         "sourceFile": source_file,
-        "sourcePage": page_number,
+        "sourcePage": chunk.get("sourcePage", page_number),
         "period": period,
         "branch": branch,
         "contract": chunk["contract"],
         "name": chunk["name"],
-        "admissionDate": parse_date(admission.group(1)) if admission else None,
-        "resignationDate": parse_date(resignation.group(1)) if resignation else None,
-        "jobTitle": job.group(1).strip() if job else "",
+        "company": branch.get("company"),
+        "cnpj": branch.get("cnpj"),
+        "admissionDate": chunk.get("admissionDate") or (parse_date(admission.group(1)) if admission else None),
+        "resignationDate": chunk.get("resignationDate") or (parse_date(resignation.group(1)) if resignation else None),
+        "jobTitle": chunk.get("jobTitle") or (job.group(1).strip() if job else ""),
+        "workforceType": workforce_type,
+        "turnoverEligible": workforce_type == "employee",
         "totals": totals,
+        "remuneration": {"earnings": remuneration_earnings, "discounts": remuneration_discounts, "net": round(remuneration_earnings - remuneration_discounts, 2)},
+        "maternityValue": maternity_value,
+        "proLaboreValue": pro_labore_value,
         "charges": {key: round(value, 2) for key, value in charges.items()},
         "overtime": {"hours": overtime_hours, "value": overtime_value, "reflexValue": overtime_reflex_value, "reflexes": overtime_reflex_events, "events": overtime_events},
         "medicalCertificates": {"hours": medical_certificate_hours, "value": medical_certificate_value, "events": medical_certificate_events},
@@ -429,40 +563,62 @@ def parse_pdf(path, diagnostics=None):
 
     def flush_current(page_number):
         nonlocal current_chunk
-        if current_chunk and current_period and current_branch:
-            employees.append(extract_employee(current_chunk, current_period, current_branch, path.name, page_number))
+        if current_chunk and current_chunk.get("period") and current_chunk.get("branch"):
+            if current_chunk.get("totals"):
+                employees.append(extract_employee(current_chunk, current_chunk["period"], current_chunk["branch"], path.name, page_number))
+            else:
+                diagnostics.append({
+                    "sourceFile": path.name,
+                    "sourcePage": current_chunk.get("sourcePage", page_number),
+                    "field": "totais do colaborador",
+                    "level": "error",
+                    "message": f"Totais não identificados para o contrato {current_chunk['contract']}.",
+                })
         current_chunk = None
 
     for page_index, page in enumerate(doc, 1):
         lines = clean_lines(page.get_text())
         period, branch = page_context(lines)
-        if (period and current_period and period["key"] != current_period["key"]) or (
-            branch and current_branch and branch["code"] != current_branch["code"]
-        ):
+        if (period and current_period and period["key"] != current_period["key"]) or (branch and current_branch and branch["code"] != current_branch["code"]):
             flush_current(page_index)
         current_period = period or current_period
         current_branch = branch or current_branch
         if not current_period or not current_branch:
-            diagnostics.append(
-                {
-                    "sourceFile": path.name,
-                    "sourcePage": page_index,
-                    "level": "warning",
-                    "message": "Página sem competência ou filial detectada antes dos registros.",
-                }
-            )
+            if "Total do(a)" not in page.get_text("text"):
+                diagnostics.append({"sourceFile": path.name, "sourcePage": page_index, "level": "warning", "message": "Página sem competência ou estabelecimento detectado antes dos registros."})
             continue
-        for line in lines:
-            if line.startswith("Total do(a)"):
+
+        for row in rows_by_y(page):
+            header = employee_header(row)
+            if header:
                 flush_current(page_index)
-                break
-            match = EMPLOYEE_RE.match(line)
-            if match:
-                flush_current(page_index)
-                current_chunk = {"contract": match.group(1), "name": match.group(2).strip(), "lines": [line]}
+                current_chunk = {
+                    **header,
+                    "lines": [row["text"]],
+                    "events": [],
+                    "period": current_period,
+                    "branch": current_branch,
+                    "sourcePage": page_index,
+                }
                 continue
-            if current_chunk:
-                current_chunk["lines"].append(line)
+            if not current_chunk:
+                continue
+
+            current_chunk["lines"].append(row["text"])
+            current_chunk["events"].extend(coordinate_events(row))
+            resignation = re.search(r"Rescisão:\s*(\d{2}/\d{2}/\d{4})", row["text"], re.I)
+            if resignation:
+                current_chunk["resignationDate"] = parse_date(resignation.group(1))
+
+            normalized_row = re.sub(r"\s+", " ", row["text"]).lower()
+            if "total de vencimentos:" in normalized_row and "total de descontos:" in normalized_row:
+                current_chunk["totals"] = {
+                    "gross": value_in_x(row, 250, 295) or 0.0,
+                    "discounts": value_in_x(row, 510, 553) or 0.0,
+                    "net": value_in_x(row, 760, 825) or 0.0,
+                    "salary": current_chunk.get("salary", 0.0),
+                }
+                flush_current(page_index)
     flush_current(doc.page_count)
     return employees
 
@@ -473,17 +629,17 @@ def extract_pdf_grand_total(path):
     for page_index, page in enumerate(doc, 1):
         lines = clean_lines(page.get_text())
         for index, line in enumerate(lines):
-            if "Total dos Vencimentos" not in line:
+            if "Total de Vencimentos" not in line:
                 continue
-            gross = exact_line_value_near(lines, index, "Total dos Vencimentos")
+            gross = exact_line_value_near(lines, index, "Total de Vencimentos:")
             if gross is None:
                 continue
             grand_total = {
                 "sourceFile": path.name,
                 "sourcePage": page_index,
                 "gross": gross,
-                "discounts": exact_line_value_near(lines, index, "Total dos Descontos") or 0.0,
-                "net": exact_line_value_near(lines, index, "Líquido") or 0.0,
+                "discounts": exact_line_value_near(lines, index, "Total de Descontos:") or 0.0,
+                "net": exact_line_value_near(lines, index, "Líquido:") or 0.0,
             }
     return grand_total
 
@@ -589,8 +745,8 @@ def build_dataset(paths):
         quality["reconciliation"].append({
             "reportType": report["reportType"], "period": report["period"], "sourceFile": source, "sourcePage": grand["sourcePage"] if grand else None,
             "pdf": pdf, "app": app, "difference": difference,
-            "matched": bool(grand) and all(abs(difference[field]) <= 0.10 for field in fields),
-            "note": "Diferenças de até R$ 0,10 são toleradas por arredondamento das linhas individuais.",
+            "matched": bool(grand) and all(abs(difference[field]) <= 1.00 for field in fields),
+            "note": "Diferenças de até R$ 1,00 são toleradas apenas na soma de milhares de linhas individuais arredondadas; o dashboard usa o total oficial impresso.",
         })
     quality["reconciliationMatched"] = (
         bool(quality["reconciliation"] or vacation_schedule)
@@ -684,7 +840,8 @@ def summarize_quality(employees, source_totals, diagnostics=None):
             }
             for value in sorted(unclassified.values(), key=lambda item: (-abs(item["value"]), item["code"]))
         ],
-        "unclassifiedEventCount": sum(item["count"] for item in unclassified.values()),
+        "unclassifiedEventCount": len(unclassified),
+        "unclassifiedOccurrenceCount": sum(item["count"] for item in unclassified.values()),
         "warnings": warnings[:250],
         "warningCount": len(warnings),
     }

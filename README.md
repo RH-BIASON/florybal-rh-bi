@@ -19,7 +19,7 @@ BI/
 
 - `/`: seletor de empresas;
 - `/florybal/`: BI Florybal Chocolates, com autenticacao e base existentes;
-- `/pegada/`: entrada do BI Calcados Pegada, ainda em implantacao.
+- `/pegada/`: BI Calçados Pegada, com folha, provisões, programação de férias, importação e acessos.
 
 As bases, regras de rubricas, usuarios e importacoes devem permanecer isolados por empresa. O codigo atual da Florybal esta em `Florybal/`. A Pegada devera receber aplicacao, banco, autenticacao, parser e APIs proprios antes de ser marcada como ambiente de producao.
 

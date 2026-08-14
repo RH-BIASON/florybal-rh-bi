@@ -6,6 +6,8 @@ import {
   BookOpenCheck,
   CalendarDays,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   ClipboardCheck,
   Download,
@@ -37,21 +39,25 @@ import {
 } from "recharts";
 import { businessToday, classifyVacationUrgency } from "./vacationUrgency.js";
 
-const brandLogo = `${import.meta.env.BASE_URL}brand/florybal-logo.png`;
+const brandLogo = `${import.meta.env.BASE_URL}brand/logo-pegada.png`;
 
 const chargeLabels = {
-  inss_company: "INSS empresa",
-  fgts: "FGTS",
-  rat_fap: "RAT x FAP",
-  third_parties: "Terceiros",
+  fgts: "FGTS folha",
 };
 
-const chartColors = ["#f59e0b", "#2563eb", "#10b981", "#ef4444", "#8b5cf6", "#64748b", "#0f766e"];
-const tokenKey = "florybal_bi_token";
-const vacationCodes = new Set(["00061", "00062", "00063", "00065", "00066", "00067", "00068", "00069", "00081", "00083", "00085", "00086", "00165", "00166", "00167", "00197"]);
-const vacationTerminationCodes = new Set(["00070", "00071", "00072", "00073", "00075", "00076", "00077", "00078", "00079", "00080", "00176", "00177", "00178", "00179", "17001", "17002", "17006", "17007", "17008", "17099"]);
+const chartColors = ["#263A8A", "#17a673", "#e59b28", "#d84b4b", "#6d5bd0", "#60708f", "#0f8f9b"];
+const overtimeCategories = [
+  { kind: "50", suffix: "50", label: "HE 50%", color: "#263A8A" },
+  { kind: "55", suffix: "55", label: "Banco 55%", color: "#0f8f9b" },
+  { kind: "65", suffix: "65", label: "Banco 65%", color: "#17a673" },
+  { kind: "70", suffix: "70", label: "HE / banco 70%", color: "#e59b28" },
+  { kind: "100", suffix: "100", label: "HE / banco 100%", color: "#d84b4b" },
+  { kind: "Banco 50", suffix: "Bank50", label: "Banco 50%", color: "#6d5bd0" },
+];
+const tokenKey = "pegada_bi_token";
+const vacationCodes = new Set(["00061", "00062", "00064", "00065", "00066", "00067", "00068", "00069", "00081", "00083"]);
+const vacationTerminationCodes = new Set(["00070", "00071", "00074", "00075", "00076", "00077", "00079", "00087", "00088"]);
 const fgtsCodes = new Set(["00474", "00475", "00476"]);
-const inssCompanyCodes = new Set(["00850", "00853", "00856"]);
 
 function currency(value) {
   return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -111,13 +117,24 @@ function isInSelected(values, selected) {
 }
 
 function overtimeKind(event) {
-  if (event.code === "00025" || event.code === "00096" || event.code === "00107") return "50";
-  if (event.code === "00026" || event.code === "00097") return "100";
+  if (event.code === "00025") return "50";
+  if (event.code === "00176") return "55";
+  if (event.code === "00177") return "65";
+  if (event.code === "00027" || event.code === "00128") return "70";
+  if (event.code === "00026" || event.code === "00129") return "100";
+  if (event.code === "00127") return "Banco 50";
   return null;
 }
 
 function overtimeReflectionKind(event) {
   return event.code === "00030" ? "Reflexo HE" : null;
+}
+
+function overtimeFields(prefix = "overtime") {
+  return Object.fromEntries(overtimeCategories.flatMap((item) => [
+    [`${prefix}${item.suffix}Hours`, 0],
+    [`${prefix}${item.suffix}Value`, 0],
+  ]));
 }
 
 function overtimeReflectionValue(item) {
@@ -128,7 +145,7 @@ function overtimeReflectionValue(item) {
 
 function medicalCertificateEvents(item) {
   const events = item.events || item.medicalCertificates?.events || [];
-  return events.filter((event) => event.code === "00007");
+  return events.filter((event) => ["00014", "00844"].includes(event.code));
 }
 
 function medicalCertificateHours(item) {
@@ -153,16 +170,12 @@ function chargeValue(item, key) {
     const matching = events.filter((event) => fgtsCodes.has(event.code));
     return matching.length ? sum(matching, (event) => event.value) : item.charges?.fgts || 0;
   }
-  if (key === "inss_company") {
-    const matching = events.filter((event) => inssCompanyCodes.has(event.code));
-    return matching.length ? sum(matching, (event) => event.value) : item.charges?.inss_company || 0;
-  }
   return item.charges?.[key] || 0;
 }
 
 function validLoanEvent(event) {
   const description = event.description.toLowerCase();
-  return description.includes("consign") && !["49992", "61114"].includes(event.code) && !description.includes("estorno");
+  return /^6150[1-9]$/.test(event.code) && !description.includes("estorno") && !description.includes("provis");
 }
 
 function loanValue(item) {
@@ -210,8 +223,9 @@ function absenceValue(item) {
 function variableKind(event) {
   if (overtimeKind(event)) return null;
   if (event.code === "00028" || event.code === "00029") return "Comissões";
-  if (event.code === "00035" || event.code === "00088" || event.code === "00089") return "Prêmios e bonificações";
-  if (["00020", "00021", "00022", "00023", "00024", "00037", "00050"].includes(event.code)) return "Adicionais";
+  if (["00015", "00093", "00134", "00145", "00172"].includes(event.code)) return "Prêmios e bonificações";
+  if (["00020", "00021", "00022", "00031"].includes(event.code)) return "Adicionais";
+  if (["00092", "00906"].includes(event.code)) return "Benefícios";
   return null;
 }
 
@@ -271,7 +285,7 @@ function App() {
     setLoading(true);
     setError("");
     try {
-      const [response, historyResponse] = await Promise.all([apiRequest("/api/payroll", {}, token), apiRequest("/api/import-history", {}, token)]);
+      const [response, historyResponse] = await Promise.all([apiRequest("/api/pegada/payroll", {}, token), apiRequest("/api/pegada/import-history", {}, token)]);
       if (!response.ok) throw new Error("Não foi possível carregar data/payroll.json");
       const payload = await response.json();
       const historyPayload = historyResponse.ok ? await historyResponse.json() : [];
@@ -297,7 +311,7 @@ function App() {
   async function initializeAuth() {
     setAuthLoading(true);
     try {
-      const statusResponse = await fetch("/api/auth/status");
+      const statusResponse = await fetch("/api/pegada/auth/status");
       const status = statusResponse.ok ? await statusResponse.json() : { hasUsers: true };
       if (status.configured === false) {
         setCurrentUser({ id: "local", email: "local", name: "Administrador local", role: "admin" });
@@ -306,7 +320,7 @@ function App() {
       }
       setAuthMode(status.hasUsers ? "login" : "setup");
       if (!authToken) return;
-      const response = await fetch("/api/auth/me", { headers: authHeaders(authToken) });
+      const response = await fetch("/api/pegada/auth/me", { headers: authHeaders(authToken) });
       if (!response.ok) throw new Error("Sessão expirada.");
       const payload = await response.json();
       setCurrentUser(payload.user);
@@ -323,7 +337,7 @@ function App() {
 
   async function handleAuthSubmit(values) {
     setError("");
-    const endpoint = authMode === "setup" ? "/api/auth/setup" : "/api/auth/login";
+    const endpoint = authMode === "setup" ? "/api/pegada/auth/setup" : "/api/pegada/auth/login";
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -350,7 +364,7 @@ function App() {
   }
 
   async function refreshImportHistory() {
-    const historyResponse = await apiRequest("/api/import-history");
+    const historyResponse = await apiRequest("/api/pegada/import-history");
     if (historyResponse.ok) setImportHistory(await historyResponse.json());
   }
 
@@ -384,7 +398,7 @@ function App() {
     setPendingImport(null);
     const progressTimer = beginImportProgress("running", pdfs, 6, 92);
     try {
-      const response = await apiRequest("/api/upload", { method: "POST", body: form });
+      const response = await apiRequest("/api/pegada/upload", { method: "POST", body: form });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Falha ao importar PDFs");
       const pending = {
@@ -439,7 +453,7 @@ function App() {
     setError("");
     const progressTimer = beginImportProgress("saving", files, 48, 94);
     try {
-      const response = await apiRequest("/api/upload", { method: "POST", body: form });
+      const response = await apiRequest("/api/pegada/upload", { method: "POST", body: form });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Falha ao salvar a importaÃ§Ã£o");
       const payload = result.dataset || result;
@@ -471,7 +485,7 @@ function App() {
     setRemovingPeriod(periodKey);
     setError("");
     try {
-      const response = await apiRequest(`/api/periods/${encodeURIComponent(periodKey)}`, { method: "DELETE" });
+      const response = await apiRequest(`/api/pegada/periods/${encodeURIComponent(periodKey)}`, { method: "DELETE" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Falha ao remover período");
       applyDataset(payload);
@@ -529,10 +543,10 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            <img src={brandLogo} alt="Florybal Chocolates" />
+            <img src={brandLogo} alt="Calcados Pegada" />
           </div>
           <div>
-            <strong>BI Florybal Chocolates</strong>
+            <strong>BI Calcados Pegada</strong>
             <span>Folha e DP</span>
           </div>
         </div>
@@ -566,7 +580,7 @@ function App() {
         <header className="topbar">
           <div>
             <span className="eyebrow">Business intelligence RH/DP</span>
-            <h1>Folhas de pagamento Florybal</h1>
+            <h1>Folhas de pagamento Pegada</h1>
           </div>
           <div className="actions">
             <button className="secondary-action" onClick={() => exportWorkbook(filtered, dataset, analytics)} title="Exportar visão filtrada em Excel com abas">
@@ -641,7 +655,7 @@ function App() {
           >
             <div className="quick-row compact">
               <button onClick={() => setSelectedBranches(new Set(branches.map((branch) => branch.code)))}>Todas</button>
-              <button onClick={() => setSelectedBranches(new Set(["000"]))}>Matriz</button>
+              <button onClick={() => setSelectedBranches(new Set(["0005"]))}>Matriz</button>
               <button onClick={() => setSelectedBranches(new Set())}>Nenhuma</button>
             </div>
             <div className="branch-grid">
@@ -721,12 +735,12 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
   const overtimeTopMap = new Map();
   const absenceTopMap = new Map();
   const variableTopMap = new Map();
-  const variableTotals = { "Comissões": 0, "Prêmios e bonificações": 0, "Adicionais": 0 };
+  const variableTotals = { "Comissões": 0, "Prêmios e bonificações": 0, "Adicionais": 0, "Benefícios": 0 };
   const chargeTotals = {};
   Object.keys(chargeLabels).forEach((key) => {
     chargeTotals[key] = 0;
   });
-  const summaryChargeKeys = ["fgts", "inss_company"];
+  const summaryChargeKeys = ["fgts"];
 
   for (const item of rows) {
     const month = item.period?.key;
@@ -748,10 +762,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
         medicalCertificateHours: 0,
         medicalCertificateValue: 0,
         medicalCertificateRecords: 0,
-        overtime50Hours: 0,
-        overtime50Value: 0,
-        overtime100Hours: 0,
-        overtime100Value: 0,
+        ...overtimeFields(),
         overtimeReflectionHours: 0,
         overtimeReflectionValue: 0,
         absenceHours: 0,
@@ -761,6 +772,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
         variableCommissions: 0,
         variablePremiums: 0,
         variableAdditionals: 0,
+        variableBenefits: 0,
         employees: new Set(),
         charges: Object.fromEntries(Object.keys(chargeLabels).map((key) => [key, 0])),
       });
@@ -804,10 +816,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
         employees: new Set(),
         admissions: 0,
         resignations: 0,
-        overtime50Hours: 0,
-        overtime50Value: 0,
-        overtime100Hours: 0,
-        overtime100Value: 0,
+        ...overtimeFields(),
         overtimeReflectionHours: 0,
         overtimeReflectionValue: 0,
         overtimeTotalHours: 0,
@@ -820,6 +829,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
         variableCommissions: 0,
         variablePremiums: 0,
         variableAdditionals: 0,
+        variableBenefits: 0,
         variableTotal: 0,
         loans: 0,
         vacations: 0,
@@ -868,10 +878,12 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
         if (variable === "Comissões") monthRow.variableCommissions += value;
         if (variable === "Prêmios e bonificações") monthRow.variablePremiums += value;
         if (variable === "Adicionais") monthRow.variableAdditionals += value;
+        if (variable === "Benefícios") monthRow.variableBenefits = (monthRow.variableBenefits || 0) + value;
 
         if (variable === "Comissões") branchRanking.variableCommissions += value;
         if (variable === "Prêmios e bonificações") branchRanking.variablePremiums += value;
         if (variable === "Adicionais") branchRanking.variableAdditionals += value;
+        if (variable === "Benefícios") branchRanking.variableBenefits += value;
         branchRanking.variableTotal += value;
 
         const variableKey = `${item.branch?.code}-${item.contract}-${item.name}`;
@@ -884,6 +896,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
             commissions: 0,
             premiums: 0,
             additionals: 0,
+            benefits: 0,
             total: 0,
           });
         }
@@ -891,6 +904,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
         if (variable === "Comissões") variableTop.commissions += value;
         if (variable === "Prêmios e bonificações") variableTop.premiums += value;
         if (variable === "Adicionais") variableTop.additionals += value;
+        if (variable === "Benefícios") variableTop.benefits += value;
         variableTop.total += value;
       }
       if (reflection) {
@@ -909,10 +923,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
             branch: item.branch?.label,
             branchCode: item.branch?.code,
             jobTitle: item.jobTitle,
-            hours50: 0,
-            value50: 0,
-            hours100: 0,
-            value100: 0,
+            ...overtimeFields(""),
             reflectionHours: 0,
             reflectionValue: 0,
             totalHours: 0,
@@ -927,17 +938,13 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
       if (!kind) continue;
       const hours = event.quantity || 0;
       const value = event.value || 0;
-      if (kind === "50") {
-        monthRow.overtime50Hours += hours;
-        monthRow.overtime50Value += value;
-        branchRanking.overtime50Hours += hours;
-        branchRanking.overtime50Value += value;
-      } else {
-        monthRow.overtime100Hours += hours;
-        monthRow.overtime100Value += value;
-        branchRanking.overtime100Hours += hours;
-        branchRanking.overtime100Value += value;
-      }
+      const category = overtimeCategories.find((item) => item.kind === kind);
+      const suffix = category?.suffix;
+      if (!suffix) continue;
+      monthRow[`overtime${suffix}Hours`] += hours;
+      monthRow[`overtime${suffix}Value`] += value;
+      branchRanking[`overtime${suffix}Hours`] += hours;
+      branchRanking[`overtime${suffix}Value`] += value;
       branchRanking.overtimeTotalHours += hours;
       branchRanking.overtimeTotalValue += value;
       const topKey = `${item.branch?.code}-${item.contract}-${item.name}`;
@@ -948,23 +955,15 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
           branch: item.branch?.label,
           branchCode: item.branch?.code,
           jobTitle: item.jobTitle,
-          hours50: 0,
-          value50: 0,
-          hours100: 0,
-          value100: 0,
+          ...overtimeFields(""),
           reflectionValue: 0,
           totalHours: 0,
           totalValue: 0,
         });
       }
       const top = overtimeTopMap.get(topKey);
-      if (kind === "50") {
-        top.hours50 += hours;
-        top.value50 += value;
-      } else {
-        top.hours100 += hours;
-        top.value100 += value;
-      }
+      top[`${suffix}Hours`] += hours;
+      top[`${suffix}Value`] += value;
       top.totalHours += hours;
       top.totalValue += value;
     }
@@ -1026,10 +1025,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
         employees: new Set(),
         admissions: 0,
         resignations: 0,
-        overtime50Hours: 0,
-        overtime50Value: 0,
-        overtime100Hours: 0,
-        overtime100Value: 0,
+        ...overtimeFields(),
         overtimeReflectionHours: 0,
         overtimeReflectionValue: 0,
         overtimeTotalHours: 0,
@@ -1042,6 +1038,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
         variableCommissions: 0,
         variablePremiums: 0,
         variableAdditionals: 0,
+        variableBenefits: 0,
         variableTotal: 0,
         loans: 0,
         vacations: 0,
@@ -1082,10 +1079,10 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
   const overtimeTop = Array.from(overtimeTopMap.values())
     .map((item) => ({
       ...item,
-      hours50: Number(item.hours50.toFixed(2)),
-      value50: Number(item.value50.toFixed(2)),
-      hours100: Number(item.hours100.toFixed(2)),
-      value100: Number(item.value100.toFixed(2)),
+      ...Object.fromEntries(overtimeCategories.flatMap((category) => [
+        [`${category.suffix}Hours`, Number((item[`${category.suffix}Hours`] || 0).toFixed(2))],
+        [`${category.suffix}Value`, Number((item[`${category.suffix}Value`] || 0).toFixed(2))],
+      ])),
       reflectionHours: Number((item.reflectionHours || 0).toFixed(2)),
       reflectionValue: Number((item.reflectionValue || 0).toFixed(2)),
       totalHours: Number(item.totalHours.toFixed(2)),
@@ -1107,6 +1104,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
       commissions: Number(item.commissions.toFixed(2)),
       premiums: Number(item.premiums.toFixed(2)),
       additionals: Number(item.additionals.toFixed(2)),
+      benefits: Number((item.benefits || 0).toFixed(2)),
       total: Number(item.total.toFixed(2)),
     }))
     .sort((a, b) => b.total - a.total)
@@ -1115,10 +1113,10 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
     .map((item) => ({
       ...item,
       employees: item.employees.size,
-      overtime50Hours: Number(item.overtime50Hours.toFixed(2)),
-      overtime50Value: Number(item.overtime50Value.toFixed(2)),
-      overtime100Hours: Number(item.overtime100Hours.toFixed(2)),
-      overtime100Value: Number(item.overtime100Value.toFixed(2)),
+      ...Object.fromEntries(overtimeCategories.flatMap((category) => [
+        [`overtime${category.suffix}Hours`, Number((item[`overtime${category.suffix}Hours`] || 0).toFixed(2))],
+        [`overtime${category.suffix}Value`, Number((item[`overtime${category.suffix}Value`] || 0).toFixed(2))],
+      ])),
       overtimeReflectionHours: Number(item.overtimeReflectionHours.toFixed(2)),
       overtimeReflectionValue: Number(item.overtimeReflectionValue.toFixed(2)),
       overtimeTotalHours: Number(item.overtimeTotalHours.toFixed(2)),
@@ -1130,6 +1128,7 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
       variableCommissions: Number(item.variableCommissions.toFixed(2)),
       variablePremiums: Number(item.variablePremiums.toFixed(2)),
       variableAdditionals: Number(item.variableAdditionals.toFixed(2)),
+      variableBenefits: Number((item.variableBenefits || 0).toFixed(2)),
       variableTotal: Number(item.variableTotal.toFixed(2)),
       loans: Number(item.loans.toFixed(2)),
       vacations: Number(item.vacations.toFixed(2)),
@@ -1139,17 +1138,19 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
       net: Number(item.net.toFixed(2)),
     }));
 
-  const overtimeTotals = byMonth.reduce(
-    (total, item) => ({
-      hours50: total.hours50 + item.overtime50Hours,
-      value50: total.value50 + item.overtime50Value,
-      hours100: total.hours100 + item.overtime100Hours,
-      value100: total.value100 + item.overtime100Value,
-      reflectionHours: total.reflectionHours + item.overtimeReflectionHours,
-      reflectionValue: total.reflectionValue + item.overtimeReflectionValue,
-    }),
-    { hours50: 0, value50: 0, hours100: 0, value100: 0, reflectionHours: 0, reflectionValue: 0 },
-  );
+  const overtimeTotals = byMonth.reduce((total, item) => {
+    for (const category of overtimeCategories) {
+      total[`${category.suffix}Hours`] += item[`overtime${category.suffix}Hours`] || 0;
+      total[`${category.suffix}Value`] += item[`overtime${category.suffix}Value`] || 0;
+    }
+    total.reflectionHours += item.overtimeReflectionHours;
+    total.reflectionValue += item.overtimeReflectionValue;
+    return total;
+  }, {
+    ...overtimeFields(""),
+    reflectionHours: 0,
+    reflectionValue: 0,
+  });
 
   const selectedPeriods = filterContext.selectedPeriods || new Set();
   const selectedBranches = filterContext.selectedBranches || new Set();
@@ -1252,14 +1253,35 @@ function buildAnalytics(rows, dataset = {}, filterContext = {}) {
     ? sum(vacations, (item) => vacationValue(item))
     : sum(summaryRows, (item) => item.payroll?.vacationsTakenGross);
   const resignationGross = sum(resignations, (item) => item.totals?.gross);
-  const proLabore = sum(rows, (item) => sum(item.events || [], (event) => event.code === "00012" ? event.value : 0));
-  const provents = Math.max(0, payroll - resignationGross);
-  const grossTotal = payroll;
+  const officialSummaryAvailable = !normalizedQuery && summaryRows.length > 0;
+  const grossTotal = officialSummaryAvailable ? sum(summaryRows, (item) => item.payroll?.gross) : payroll;
+  const netTotal = officialSummaryAvailable ? sum(summaryRows, (item) => item.payroll?.net) : net;
+  const proLabore = officialSummaryAvailable
+    ? sum(summaryRows, (item) => item.payroll?.proLabore)
+    : sum(rows, (item) => item.proLaboreValue || sum(item.events || [], (event) => event.code === "00012" ? event.value : 0));
+  const maternity = officialSummaryAvailable
+    ? sum(summaryRows, (item) => item.payroll?.maternity)
+    : sum(rows, (item) => item.maternityValue);
+  const remuneration = officialSummaryAvailable
+    ? sum(summaryRows, (item) => item.payroll?.remunerationNet)
+    : sum(rows, (item) => item.remuneration?.net);
+  const remunerationEarnings = officialSummaryAvailable
+    ? sum(summaryRows, (item) => item.payroll?.remunerationEarnings)
+    : sum(rows, (item) => item.remuneration?.earnings);
+  const remunerationDiscounts = officialSummaryAvailable
+    ? sum(summaryRows, (item) => item.payroll?.remunerationDiscounts)
+    : sum(rows, (item) => item.remuneration?.discounts);
+  const latestPayrollPeriod = summaryRows.map((item) => item.period?.key).filter(Boolean).sort().at(-1) || "";
+  const latestSummaryRows = summaryRows.filter((item) => item.period?.key === latestPayrollPeriod);
+  const activeEmployees = latestSummaryRows.length
+    ? sum(latestSummaryRows, (item) => item.counts?.active)
+    : uniqueCount(rows.filter((item) => item.turnoverEligible !== false && !item.resignationDate), personKey);
+  const provents = Math.max(0, grossTotal - resignationGross);
   const payrollGrossWithoutProLabore = Math.max(0, grossTotal - proLabore);
   const chargesTotal = sum(charges, (item) => item.value);
   const resignationChargesTotal = sum(summaryRows, (item) => item.charges?.resignation_charges);
 
-  return { rows, records, employees, payroll, grossTotal, payrollGrossWithoutProLabore, proLabore, provents, vacationsTakenGross, resignationGross, resignationChargesTotal, chargesTotal, net, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking: branchRankingWithProvisions, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop, vacationProvision, thirteenthProvision, provisionChart, vacationSchedule, schedulePeriod, scheduleReferenceDate: referenceDate, scheduleReportPositionDate };
+  return { rows, records, employees, activeEmployees, payroll: grossTotal, grossTotal, payrollGrossWithoutProLabore, proLabore, maternity, remuneration, remunerationEarnings, remunerationDiscounts, provents, vacationsTakenGross, resignationGross, resignationChargesTotal, chargesTotal, net: netTotal, discounts, admissions, resignations, loans, vacations, vacationTerminations, medicalCertificates, alerts, byMonth, byBranch, branchRanking: branchRankingWithProvisions, charges, overtimeTop, overtimeTotals, absenceTop, absenceAlerts, variableBreakdown, variableTop, vacationProvision, thirteenthProvision, provisionChart, vacationSchedule, schedulePeriod, scheduleReferenceDate: referenceDate, scheduleReportPositionDate };
 }
 
 function toggleSet(value, setter) {
@@ -1314,22 +1336,23 @@ function togglePeriod(period, mode, setter) {
 function KpiStrip({ analytics }) {
   return (
     <section className="kpis">
-      <Kpi icon={Users} label="Colaboradores" value={analytics.employees.toLocaleString("pt-BR")} />
+      <Kpi icon={Users} label="Ativos" value={analytics.activeEmployees.toLocaleString("pt-BR")} />
       <Kpi
-        icon={FileUp}
-        label="Colab. x mês"
-        value={analytics.records.toLocaleString("pt-BR")}
-        title={`${analytics.records.toLocaleString("pt-BR")} linhas de colaborador por competência no filtro atual`}
+        icon={TrendingUp}
+        label="Remuneração"
+        value={compactCurrency(analytics.remuneration)}
+        title={`Vencimentos selecionados ${currency(analytics.remunerationEarnings)} - descontos selecionados ${currency(analytics.remunerationDiscounts)}`}
       />
       <Kpi
         icon={BriefcaseBusiness}
         label="Folha bruta"
-        value={compactCurrency(analytics.payrollGrossWithoutProLabore)}
-        title={`Folha sem pró-labore: ${currency(analytics.payrollGrossWithoutProLabore)} | Pró-labore: ${currency(analytics.proLabore)}`}
-        detail={`Pró-labore ${compactCurrency(analytics.proLabore)}`}
+        value={compactCurrency(analytics.grossTotal)}
+        title={currency(analytics.grossTotal)}
         tone="payroll"
       />
-      <Kpi icon={Landmark} label="Encargos" value={compactCurrency(analytics.chargesTotal)} title={currency(analytics.chargesTotal)} />
+      <Kpi icon={CheckCircle2} label="Salário maternidade" value={compactCurrency(analytics.maternity)} title={currency(analytics.maternity)} />
+      <Kpi icon={BriefcaseBusiness} label="Pró-labore" value={compactCurrency(analytics.proLabore)} title={currency(analytics.proLabore)} tone="prolabore" />
+      <Kpi icon={Landmark} label="FGTS" value={compactCurrency(analytics.chargesTotal)} title={currency(analytics.chargesTotal)} />
       <Kpi icon={TrendingUp} label="Líquido" value={compactCurrency(analytics.net)} title={currency(analytics.net)} />
       <Kpi icon={CheckCircle2} label="Admissões" value={analytics.admissions.length.toLocaleString("pt-BR")} />
       <Kpi icon={ShieldAlert} label="Rescisões" value={analytics.resignations.length.toLocaleString("pt-BR")} />
@@ -1458,7 +1481,7 @@ function BranchRankingPanel({ analytics }) {
       title: "Horas extras",
       getValue: (item) => item.overtimeTotalHours,
       formatValue: formatHours,
-      detail: (item) => `${formatHours(item.overtime50Hours)} 50% | ${formatHours(item.overtime100Hours)} 100% | ${currency(item.overtimeTotalValue)}`,
+      detail: (item) => `${overtimeCategories.filter((category) => item[`overtime${category.suffix}Hours`]).map((category) => `${category.label} ${formatHours(item[`overtime${category.suffix}Hours`])}`).join(" | ")} | ${currency(item.overtimeTotalValue)}`,
     },
     { title: "Admissões", getValue: (item) => item.admissions, formatValue: (value) => value.toLocaleString("pt-BR"), detail: (item) => `${item.employees} colaboradores no filtro` },
     { title: "Rescisões", getValue: (item) => item.resignations, formatValue: (value) => value.toLocaleString("pt-BR"), detail: (item) => `${item.employees} colaboradores no filtro` },
@@ -1592,24 +1615,21 @@ function Movement({ analytics }) {
 }
 
 function Overtime({ analytics }) {
-  const overtimeRows = analytics.byMonth.map((item) => [
-    item.label,
-    formatHours(item.overtime50Hours),
-    currency(item.overtime50Value),
-    formatHours(item.overtime100Hours),
-    currency(item.overtime100Value),
-    formatHours(item.overtimeReflectionHours),
-    currency(item.overtimeReflectionValue),
-    currency(item.overtime50Value + item.overtime100Value + item.overtimeReflectionValue),
-  ]);
+  const totalHours = overtimeCategories.reduce((total, category) => total + analytics.overtimeTotals[`${category.suffix}Hours`], 0);
+  const totalValue = overtimeCategories.reduce((total, category) => total + analytics.overtimeTotals[`${category.suffix}Value`], analytics.overtimeTotals.reflectionValue);
   return (
     <section className="grid two">
       <Panel title="Resumo de horas extras no filtro" icon={Clock3} wide>
         <div className="metric-inline">
-          <div><span>HE 50%</span><strong>{formatHours(analytics.overtimeTotals.hours50)}</strong><small>{currency(analytics.overtimeTotals.value50)}</small></div>
-          <div><span>HE 100%</span><strong>{formatHours(analytics.overtimeTotals.hours100)}</strong><small>{currency(analytics.overtimeTotals.value100)}</small></div>
+          {overtimeCategories.map((category) => (
+            <div key={category.kind}>
+              <span>{category.label}</span>
+              <strong>{formatHours(analytics.overtimeTotals[`${category.suffix}Hours`])}</strong>
+              <small>{currency(analytics.overtimeTotals[`${category.suffix}Value`])}</small>
+            </div>
+          ))}
           <div><span>Reflexos HE</span><strong>{compactCurrency(analytics.overtimeTotals.reflectionValue)}</strong><small>{formatHours(analytics.overtimeTotals.reflectionHours)}</small></div>
-          <div><span>Total HE</span><strong>{formatHours(analytics.overtimeTotals.hours50 + analytics.overtimeTotals.hours100)}</strong><small>{currency(analytics.overtimeTotals.value50 + analytics.overtimeTotals.value100 + analytics.overtimeTotals.reflectionValue)}</small></div>
+          <div><span>Total HE</span><strong>{formatHours(totalHours)}</strong><small>{currency(totalValue)}</small></div>
         </div>
       </Panel>
       <Panel title="Horas extras mês a mês" icon={TrendingUp} wide>
@@ -1620,8 +1640,9 @@ function Overtime({ analytics }) {
             <YAxis />
             <Tooltip formatter={(value, name) => [name.includes("Valor") ? currency(value) : formatHours(value), name]} />
             <Legend />
-            <Bar dataKey="overtime50Hours" name="HE 50% horas" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={72} />
-            <Bar dataKey="overtime100Hours" name="HE 100% horas" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={72} />
+            {overtimeCategories.map((category) => (
+              <Bar key={category.kind} dataKey={`overtime${category.suffix}Hours`} name={category.label} fill={category.color} stackId="hours" maxBarSize={72} />
+            ))}
           </BarChart>
         </Chart>
       </Panel>
@@ -1633,9 +1654,10 @@ function Overtime({ analytics }) {
             <YAxis tickFormatter={(value) => `${Math.round(value / 1000)}k`} />
             <Tooltip formatter={(value) => currency(value)} />
             <Legend />
-            <Bar dataKey="overtime50Value" name="Valor 50%" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={72} />
-            <Bar dataKey="overtime100Value" name="Valor 100%" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={72} />
-            <Bar dataKey="overtimeReflectionValue" name="Reflexos HE" fill="#0f766e" radius={[4, 4, 0, 0]} maxBarSize={72} />
+            {overtimeCategories.map((category) => (
+              <Bar key={category.kind} dataKey={`overtime${category.suffix}Value`} name={category.label} fill={category.color} stackId="value" maxBarSize={72} />
+            ))}
+            <Bar dataKey="overtimeReflectionValue" name="Reflexos HE" fill="#60708f" stackId="value" maxBarSize={72} />
           </BarChart>
         </Chart>
       </Panel>
@@ -1644,7 +1666,19 @@ function Overtime({ analytics }) {
       </Panel>
       <BranchMetricChart title="Top filiais por horas extras" icon={Landmark} rows={analytics.branchRanking} valueKey="overtimeTotalHours" barName="Horas" formatter={formatHours} color="#85523A" wide />
       <Panel title="Resumo mensal 50%, 100% e reflexos" icon={CalendarDays} wide>
-        <DataTable columns={["Mês", "HE 50%", "Valor 50%", "HE 100%", "Valor 100%", "Reflexos h", "Reflexos HE", "Total valor"]} rows={overtimeRows} />
+        <div className="overtime-month-list">
+          {analytics.byMonth.map((item) => (
+            <article className="overtime-month-card" key={item.period}>
+              <strong>{item.label}</strong>
+              <div className="overtime-month-metrics">
+                {overtimeCategories.filter((category) => item[`overtime${category.suffix}Hours`] || item[`overtime${category.suffix}Value`]).map((category) => (
+                  <div key={category.kind}><span>{category.label}</span><b>{formatHours(item[`overtime${category.suffix}Hours`])}</b><small>{currency(item[`overtime${category.suffix}Value`])}</small></div>
+                ))}
+                <div><span>Reflexos</span><b>{formatHours(item.overtimeReflectionHours)}</b><small>{currency(item.overtimeReflectionValue)}</small></div>
+              </div>
+            </article>
+          ))}
+        </div>
       </Panel>
     </section>
   );
@@ -1666,8 +1700,9 @@ function OvertimeRanking({ rows }) {
           </div>
           <div className="rank-metrics">
             <div><span>Total</span><strong>{formatHours(item.totalHours)}</strong></div>
-            <div><span>50%</span><strong>{formatHours(item.hours50)}</strong></div>
-            <div><span>100%</span><strong>{formatHours(item.hours100)}</strong></div>
+            {overtimeCategories.filter((category) => item[`${category.suffix}Hours`]).map((category) => (
+              <div key={category.kind}><span>{category.label}</span><strong>{formatHours(item[`${category.suffix}Hours`])}</strong></div>
+            ))}
             <div><span>Reflexos</span><strong>{currency(item.reflectionValue || 0)}</strong></div>
             <div><span>Valor</span><strong>{currency(item.totalValue)}</strong></div>
           </div>
@@ -1765,7 +1800,7 @@ function MedicalCertificates({ analytics }) {
       <Panel title="Atestados médicos" icon={ClipboardCheck} wide>
         <div className="metric-inline">
           <div><span>Colaboradores</span><strong>{people.toLocaleString("pt-BR")}</strong><small>No filtro atual</small></div>
-          <div><span>Ocorrências</span><strong>{analytics.medicalCertificates.length.toLocaleString("pt-BR")}</strong><small>Rubrica 00007</small></div>
+          <div><span>Ocorrências</span><strong>{analytics.medicalCertificates.length.toLocaleString("pt-BR")}</strong><small>Rubricas 00014 e 00844</small></div>
           <div><span>Horas</span><strong>{formatHours(totalHours)}</strong><small>Total informado na folha</small></div>
           <div><span>Valor</span><strong>{compactCurrency(totalValue)}</strong><small>{currency(totalValue)}</small></div>
         </div>
@@ -1814,17 +1849,19 @@ function Variables({ analytics }) {
     currency(item.commissions),
     currency(item.premiums),
     currency(item.additionals),
+    currency(item.benefits),
     currency(item.total),
   ]);
 
   return (
     <section className="grid two">
-      <Panel title="Comissões, prêmios e adicionais" icon={BriefcaseBusiness} wide>
+      <Panel title="Comissões, prêmios, adicionais e benefícios" icon={BriefcaseBusiness} wide>
         <div className="metric-inline">
           <div><span>Total variável</span><strong>{compactCurrency(total)}</strong><small>{currency(total)}</small></div>
           <div><span>Comissões</span><strong>{compactCurrency(categoryValue("Comissões"))}</strong><small>{currency(categoryValue("Comissões"))}</small></div>
           <div><span>Prêmios e bonificações</span><strong>{compactCurrency(categoryValue("Prêmios e bonificações"))}</strong><small>{currency(categoryValue("Prêmios e bonificações"))}</small></div>
           <div><span>Adicionais</span><strong>{compactCurrency(categoryValue("Adicionais"))}</strong><small>{currency(categoryValue("Adicionais"))}</small></div>
+          <div><span>Benefícios</span><strong>{compactCurrency(categoryValue("Benefícios"))}</strong><small>{currency(categoryValue("Benefícios"))}</small></div>
           <div><span>Consignados</span><strong>{compactCurrency(loansTotal)}</strong><small>{currency(loansTotal)}</small></div>
         </div>
       </Panel>
@@ -1839,6 +1876,7 @@ function Variables({ analytics }) {
             <Bar dataKey="variableCommissions" name="Comissões" fill="#2563eb" radius={[4, 4, 0, 0]} />
             <Bar dataKey="variablePremiums" name="Prêmios" fill="#10b981" radius={[4, 4, 0, 0]} />
             <Bar dataKey="variableAdditionals" name="Adicionais" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="variableBenefits" name="Benefícios" fill="#6d5bd0" radius={[4, 4, 0, 0]} />
           </BarChart>
         </Chart>
       </Panel>
@@ -1859,14 +1897,16 @@ function Variables({ analytics }) {
           columns={["Grupo", "O que entra"]}
           rows={[
             ["Comissões", "Somente rubricas 00028 Comissões e 00029 Repouso s/Comissões."],
-            ["Prêmios e bonificações", "Somente rubricas 00035, 00088 e 00089."],
-            ["Adicionais", "Somente rubricas 00020, 00021, 00022, 00023, 00024, 00037 e 00050."],
+            ["Prêmios e bonificações", "Rubricas 00015, 00093, 00134, 00145 e 00172."],
+            ["Adicionais", "Rubricas 00020, 00021, 00022 e 00031."],
+            ["Benefícios", "Rubricas 00092 e 00906."],
+            ["Consignados", "Somente descontos efetivos 61501 a 61509."],
           ]}
           limit={10}
         />
       </Panel>
       <Panel title="Top colaboradores por variável" icon={Users} wide>
-        <DataTable columns={["Matriz/Filial", "Contrato", "Colaborador", "Comissões", "Prêmios", "Adicionais", "Total"]} rows={topRows} limit={10} />
+        <DataTable columns={["Matriz/Filial", "Contrato", "Colaborador", "Comissões", "Prêmios", "Adicionais", "Benefícios", "Total"]} rows={topRows} limit={10} />
       </Panel>
       <Panel title="Consignados por competência" icon={Banknote}>
         <Chart>
@@ -2002,11 +2042,21 @@ function Provisions({ analytics }) {
 }
 
 function VacationSchedule({ analytics }) {
+  const [page, setPage] = useState(1);
+  const pageSize = 60;
   const counts = analytics.vacationSchedule.reduce((result, item) => {
     result[item.urgency] = (result[item.urgency] || 0) + 1;
     return result;
   }, {});
   const urgencyClass = (urgency) => urgency === "Vencido" ? "expired" : ["Até 30 dias", "Até 2 meses"].includes(urgency) ? "due-soon" : "regular";
+  const pageCount = Math.max(1, Math.ceil(analytics.vacationSchedule.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = (currentPage - 1) * pageSize;
+  const visibleRows = analytics.vacationSchedule.slice(pageStart, pageStart + pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [analytics.vacationSchedule]);
 
   return (
     <section className="grid two">
@@ -2023,26 +2073,36 @@ function VacationSchedule({ analytics }) {
           <div><span>Total na lista</span><strong>{analytics.vacationSchedule.length}</strong><small>Um registro principal por pessoa</small></div>
         </div>
         {analytics.vacationSchedule.length ? (
-          <div className="vacation-schedule-list">
-            {analytics.vacationSchedule.map((item) => (
-              <article className={`vacation-schedule-row ${urgencyClass(item.urgency)}`} key={`${item.branch?.code}-${item.contract}`}>
-                <div className="vacation-person">
-                  <span>{item.branch?.code} · Matrícula {item.contract}</span>
-                  <strong>{item.name}</strong>
-                  <small>{item.branch?.name}</small>
-                </div>
-                <div className="vacation-period">
-                  <span>Período aquisitivo</span>
-                  <strong>{shortDate(item.acquisitionStart)} a {shortDate(item.acquisitionEnd)}</strong>
-                  {item.periodCount > 1 && <small>+{item.periodCount - 1} período(s) em detalhe</small>}
-                </div>
-                <div><span>Data-limite</span><strong>{shortDate(item.deadline)}</strong><small>{item.daysToDeadline === null ? "Sem data calculada" : item.daysToDeadline < 0 ? `${Math.abs(item.daysToDeadline)} dias vencido` : `${item.daysToDeadline} dias restantes`}</small></div>
-                <div><span>Direito</span><strong>{item.totalDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias</strong><small>{item.daysTaken.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} já gozados</small></div>
-                <div className="vacation-balance"><span>Saldo a gozar</span><strong>{item.balanceDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias</strong><small>{item.company} · {item.cnpj}</small></div>
-                <div className={`urgency-badge ${urgencyClass(item.urgency)}`}><strong>{item.urgency}</strong></div>
-              </article>
-            ))}
-          </div>
+          <>
+            <div className="vacation-pagination">
+              <span>Exibindo {pageStart + 1}-{Math.min(pageStart + pageSize, analytics.vacationSchedule.length)} de {analytics.vacationSchedule.length.toLocaleString("pt-BR")}</span>
+              <div>
+                <button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage === 1} title="Página anterior"><ChevronLeft size={16} /> Anterior</button>
+                <strong>{currentPage} / {pageCount}</strong>
+                <button type="button" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={currentPage === pageCount} title="Próxima página">Próxima <ChevronRight size={16} /></button>
+              </div>
+            </div>
+            <div className="vacation-schedule-list">
+              {visibleRows.map((item) => (
+                <article className={`vacation-schedule-row ${urgencyClass(item.urgency)}`} key={`${item.branch?.code}-${item.contract}`}>
+                  <div className="vacation-person">
+                    <span>{item.branch?.code} · Matrícula {item.contract}</span>
+                    <strong>{item.name}</strong>
+                    <small>{item.branch?.name}</small>
+                  </div>
+                  <div className="vacation-period">
+                    <span>Período aquisitivo</span>
+                    <strong>{shortDate(item.acquisitionStart)} a {shortDate(item.acquisitionEnd)}</strong>
+                    {item.periodCount > 1 && <small>+{item.periodCount - 1} período(s) em detalhe</small>}
+                  </div>
+                  <div><span>Data-limite</span><strong>{shortDate(item.deadline)}</strong><small>{item.daysToDeadline === null ? "Sem data calculada" : item.daysToDeadline < 0 ? `${Math.abs(item.daysToDeadline)} dias vencido` : `${item.daysToDeadline} dias restantes`}</small></div>
+                  <div><span>Direito</span><strong>{item.totalDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias</strong><small>{item.daysTaken.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} já gozados</small></div>
+                  <div className="vacation-balance"><span>Saldo a gozar</span><strong>{item.balanceDays.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} dias</strong><small>{item.company} · {item.cnpj}</small></div>
+                  <div className={`urgency-badge ${urgencyClass(item.urgency)}`}><strong>{item.urgency}</strong></div>
+                </article>
+              ))}
+            </div>
+          </>
         ) : <div className="empty-state">Nenhum colaborador encontrado no filtro atual.</div>}
       </Panel>
     </section>
@@ -2050,15 +2110,11 @@ function VacationSchedule({ analytics }) {
 }
 
 const rubricFallbackDescriptions = {
-  "00473": "FGTS sobre Salários",
-  "00474": "FGTS sobre as Férias",
-  "00475": "FGTS sobre o 13º Salário",
-  "00476": "FGTS sobre valores pagos na rescisão",
-  "00478": "FGTS Indenizado (40%)",
-  "00479": "INSS patronal sobre 13º rescisório",
-  "00849": "INSS Empresa sobre salário e férias",
-  "00852": "INSS Empresa sobre o 13º salário",
-  "00855": "INSS Empresa sobre pró-labore",
+  "00474": "FGTS sobre salários",
+  "00475": "FGTS sobre férias",
+  "00476": "FGTS sobre o 13º salário",
+  "00478": "FGTS sobre valores pagos na rescisão",
+  "00479": "FGTS indenizado",
 };
 
 function eventIndex(rows) {
@@ -2090,6 +2146,9 @@ function rubricCatalogSections(allRows) {
         { title: "Descontos", type: "source", rule: "Linha Total dos Descontos de cada colaborador." },
         { title: "Líquido", type: "source", rule: "Linha Líquido de cada colaborador; bruto menos descontos." },
         { title: "Colaboradores", type: "source", rule: "Contratos únicos por competência e filial selecionadas." },
+        { title: "Remuneração", type: "included", codes: ["00001", "00002", "00003", "00005", "00007", "00010", "00014", "00020", "00021", "00022", "00025", "00026", "00030", "00031", "00061", "00062", "00064", "00065", "00068", "00081", "00083", "00092", "00093", "00772", "00813", "00819", "00840", "00841", "00844", "00201", "00202", "00203", "00247", "00254", "00283"], rule: "Vencimentos autorizados menos descontos autorizados; bases 004xx não entram." },
+        { title: "Salário maternidade", type: "included", codes: ["00004", "00107", "00333", "00337", "00338"], rule: "Exibido separadamente da remuneração." },
+        { title: "Pró-labore", type: "included", codes: ["00012"], rule: "Exibido separadamente da remuneração." },
       ],
     },
     {
@@ -2108,8 +2167,12 @@ function rubricCatalogSections(allRows) {
       icon: Clock3,
       summary: "Horas e valores entram somente pelas rubricas definidas abaixo.",
       items: [
-        { title: "Horas extras 50%", type: "included", codes: ["00025", "00096", "00107"], rule: "Soma quantidade em horas e valor." },
-        { title: "Horas extras 100%", type: "included", codes: ["00026", "00097"], rule: "Soma quantidade em horas e valor." },
+        { title: "Horas extras 50%", type: "included", codes: ["00025"], rule: "Soma quantidade em horas e valor." },
+        { title: "Banco de horas 55%", type: "included", codes: ["00176"], rule: "Exibido em faixa própria." },
+        { title: "Banco de horas 65%", type: "included", codes: ["00177"], rule: "Exibido em faixa própria." },
+        { title: "Horas / banco 70%", type: "included", codes: ["00027", "00128"], rule: "Exibidos em uma faixa 70%." },
+        { title: "Horas / banco 100%", type: "included", codes: ["00026", "00129"], rule: "Exibidos em uma faixa 100%." },
+        { title: "Banco de horas 50%", type: "included", codes: ["00127"], rule: "Exibido separadamente da HE 50%." },
         { title: "Reflexos de horas extras", type: "included", codes: ["00030"], rule: "Exibido separadamente das horas extras." },
       ],
     },
@@ -2127,7 +2190,7 @@ function rubricCatalogSections(allRows) {
       icon: ClipboardCheck,
       summary: "Ocorrências médicas controladas por uma rubrica exclusiva.",
       items: [
-        { title: "Atestados médicos", type: "included", codes: ["00007"], rule: "Soma quantidade em horas, valor e ocorrências por colaborador." },
+        { title: "Atestados médicos", type: "included", codes: ["00014", "00844"], rule: "Atestado da competência e horas de atestado do mês anterior." },
       ],
     },
     {
@@ -2136,20 +2199,18 @@ function rubricCatalogSections(allRows) {
       summary: "Variáveis usam códigos exatos; consignados são identificados pela descrição do desconto efetivo.",
       items: [
         { title: "Comissões", type: "included", codes: ["00028", "00029"], rule: "Comissões e repouso sobre comissões." },
-        { title: "Prêmios e bonificações", type: "included", codes: ["00035", "00088", "00089"], rule: "Prêmio de produtividade e bonificações de domingo/feriado." },
-        { title: "Adicionais", type: "included", codes: ["00020", "00021", "00022", "00023", "00024", "00037", "00050"], rule: "Somente os adicionais autorizados nesta lista." },
-        { title: "Empréstimos consignados", type: "rule", codes: loanCodes, rule: "Rubricas efetivas de empréstimo cuja descrição identifica consignado." },
+        { title: "Prêmios e bonificações", type: "included", codes: ["00015", "00093", "00134", "00145", "00172"], rule: "Prêmios, bônus, bonificação e gratificações." },
+        { title: "Adicionais", type: "included", codes: ["00020", "00021", "00022", "00031"], rule: "Adicional noturno, insalubridade, periculosidade e repouso sobre adicional noturno." },
+        { title: "Benefícios", type: "included", codes: ["00092", "00906"], rule: "Ajuda moradia e ajuda deslocamento." },
+        { title: "Empréstimos consignados", type: "included", codes: loanCodes, rule: "Somente descontos efetivos 61501 a 61509." },
       ],
     },
     {
       title: "Encargos",
       icon: Landmark,
-      summary: "FGTS e INSS empresa vêm dos resumos oficiais; os demais seguem as linhas identificadas na folha.",
+      summary: "O relatório atual informa somente o FGTS da folha como encargo confirmado.",
       items: [
-        { title: "FGTS", type: "included", codes: ["00473", "00474", "00475", "00476"], rule: "Soma oficial do resumo da competência, sem encargos rescisórios." },
-        { title: "INSS empresa", type: "included", codes: ["00849", "00852", "00855"], rule: "Soma oficial do resumo da competência." },
-        { title: "RAT x FAP", type: "rule", codes: ["00850", "00853"], rule: "Linhas identificadas como RATxFAP no demonstrativo." },
-        { title: "Terceiros", type: "rule", codes: ["00851", "00854"], rule: "Linhas Terceiros Empresa / Terceiros Parte Empresa." },
+        { title: "FGTS da folha", type: "included", codes: ["00474", "00475", "00476"], rule: "Total oficial da competência; 00478 e 00479 ficam apenas nas rescisões." },
       ],
     },
     {
@@ -2324,7 +2385,7 @@ function ImportCenter({ dataset, analytics, importHistory, onRemovePeriod, remov
           <div><span>PDFs ativos</span><strong>{dataset.sources.length.toLocaleString("pt-BR")}</strong><small>{dataset.periods.map(periodLabel).join(", ")}</small></div>
           <div><span>Registros extraídos</span><strong>{((quality.employeeRecords || 0) + (dataset.provisions?.length || 0) + (dataset.vacationSchedule?.length || 0)).toLocaleString("pt-BR")}</strong><small>{dataset.branches.length.toLocaleString("pt-BR")} estabelecimentos identificados</small></div>
           <div><span>Conferência</span><strong>{quality.reconciliationMatched ? "Batido" : "Divergente"}</strong><small>{quality.reconciliation?.filter((item) => item.matched).length || 0}/{quality.reconciliation?.length || 0} arquivos reconciliados</small></div>
-          <div><span>Verbas novas</span><strong>{(quality.unclassifiedEventCount || 0).toLocaleString("pt-BR")}</strong><small>eventos não classificados</small></div>
+          <div><span>Verbas novas</span><strong>{(quality.unclassifiedEventCount || 0).toLocaleString("pt-BR")}</strong><small>rubricas ainda não classificadas</small></div>
           <div><span>Diagnósticos</span><strong>{(quality.diagnosticCount || 0).toLocaleString("pt-BR")}</strong><small>falhas ou avisos do parser</small></div>
           <div><span>Filtro atual</span><strong>{analytics.rows.length.toLocaleString("pt-BR")}</strong><small>registros em análise</small></div>
         </div>
@@ -2428,7 +2489,7 @@ function AuthScreen({ mode, error, onSubmit }) {
       <section className="auth-card">
         <form className="auth-form" onSubmit={submit}>
           <a className="auth-workspace-link" href="/"><ArrowLeft size={16} /> Ambientes</a>
-          <img src={brandLogo} alt="Florybal Chocolates" />
+          <img src={brandLogo} alt="Calcados Pegada" />
           <span>Business intelligence RH/DP</span>
           <h1>{firstAccess ? "Criar primeiro acesso" : "Entrar no BI"}</h1>
           <p>{firstAccess ? "Este usuário será o administrador inicial do painel." : "Use seu e-mail e senha para acessar os dados da folha."}</p>
@@ -2452,7 +2513,7 @@ function AuthScreen({ mode, error, onSubmit }) {
         <aside className="auth-brand">
           <img src={brandLogo} alt="" />
           <div>
-            <strong>BI Florybal Chocolates</strong>
+            <strong>BI Calcados Pegada</strong>
             <span>Folha de pagamento, indicadores e auditoria em um só ambiente.</span>
           </div>
         </aside>
@@ -2468,7 +2529,7 @@ function AccessPanel({ apiRequest, currentUser }) {
   const [busy, setBusy] = useState(false);
 
   async function loadUsers() {
-    const response = await apiRequest("/api/auth/users");
+    const response = await apiRequest("/api/pegada/auth/users");
     const payload = await response.json();
     if (response.ok) setUsers(payload);
     else setMessage(payload.error || "Falha ao carregar acessos.");
@@ -2483,7 +2544,7 @@ function AccessPanel({ apiRequest, currentUser }) {
     setBusy(true);
     setMessage("");
     try {
-      const response = await apiRequest("/api/auth/users", {
+      const response = await apiRequest("/api/pegada/auth/users", {
         method: "POST",
         body: JSON.stringify(form),
       });
@@ -2503,7 +2564,7 @@ function AccessPanel({ apiRequest, currentUser }) {
     setBusy(true);
     setMessage("");
     try {
-      const response = await apiRequest(`/api/auth/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      const response = await apiRequest(`/api/pegada/auth/users/${encodeURIComponent(user.id)}`, { method: "DELETE" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Falha ao excluir acesso.");
       setMessage("Acesso excluído.");
@@ -2687,12 +2748,16 @@ function ImportProgressModal({ state, onClose, onConfirm }) {
 function exportBackup(dataset, importHistory) {
   const payload = {
     exportedAt: new Date().toISOString(),
-    product: "BI Florybal Chocolates",
+    product: "BI Calcados Pegada",
     periods: dataset.periods,
     sources: dataset.sources,
     quality: dataset.quality,
     branches: dataset.branches,
     chargeSummaries: dataset.chargeSummaries || [],
+    provisions: dataset.provisions || [],
+    provisionSummaries: dataset.provisionSummaries || [],
+    vacationSchedule: dataset.vacationSchedule || [],
+    reportImports: dataset.reportImports || [],
     employees: dataset.employees,
     importHistory,
   };
@@ -2700,18 +2765,18 @@ function exportBackup(dataset, importHistory) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `backup-bi-florybal-${new Date().toISOString().slice(0, 10)}.json`;
+  link.download = `backup-bi-pegada-${new Date().toISOString().slice(0, 10)}.json`;
   link.click();
   URL.revokeObjectURL(url);
 }
 
 function branchRankingExportRows(rows) {
   const rankings = [
-    { label: "Horas extras", valueKey: "overtimeTotalHours", moneyKey: "overtimeTotalValue", detail: (item) => `HE 50 ${formatHours(item.overtime50Hours)} | HE 100 ${formatHours(item.overtime100Hours)} | Reflexos ${currency(item.overtimeReflectionValue)}` },
+    { label: "Horas extras", valueKey: "overtimeTotalHours", moneyKey: "overtimeTotalValue", detail: (item) => `${overtimeCategories.filter((category) => item[`overtime${category.suffix}Hours`]).map((category) => `${category.label} ${formatHours(item[`overtime${category.suffix}Hours`])}`).join(" | ")} | Reflexos ${currency(item.overtimeReflectionValue)}` },
     { label: "Admissoes", valueKey: "admissions", detail: (item) => `${item.employees} colaboradores no filtro` },
     { label: "Rescisoes", valueKey: "resignations", detail: (item) => `${item.employees} colaboradores no filtro` },
     { label: "Atestados", valueKey: "medicalCertificateHours", moneyKey: "medicalCertificateValue", detail: (item) => `${item.medicalCertificateRecords} ocorrencias` },
-    { label: "Variaveis", valueKey: "variableTotal", moneyKey: "variableTotal", detail: (item) => `Comissoes ${currency(item.variableCommissions)} | Premios ${currency(item.variablePremiums)} | Adicionais ${currency(item.variableAdditionals)}` },
+    { label: "Variaveis", valueKey: "variableTotal", moneyKey: "variableTotal", detail: (item) => `Comissoes ${currency(item.variableCommissions)} | Premios ${currency(item.variablePremiums)} | Adicionais ${currency(item.variableAdditionals)} | Beneficios ${currency(item.variableBenefits)}` },
     { label: "Consignados", valueKey: "loans", moneyKey: "loans", detail: () => "" },
     { label: "Ferias", valueKey: "vacations", moneyKey: "vacations", detail: () => "" },
     { label: "Ferias Rec", valueKey: "vacationTerminations", moneyKey: "vacationTerminations", detail: () => "" },
@@ -2742,7 +2807,7 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
   const { default: ExcelJS } = await import("exceljs");
   const analytics = filteredAnalytics || buildAnalytics(rows, dataset);
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "BI Florybal Chocolates";
+  workbook.creator = "BI Calcados Pegada";
   workbook.created = new Date();
   workbook.modified = new Date();
 
@@ -2755,20 +2820,19 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
       { header: "Tipo", key: "type", width: 8 },
     ],
     [
-      { metric: "Colaboradores unicos", value: analytics.employees, type: "number" },
+      { metric: "Colaboradores ativos", value: analytics.activeEmployees, type: "number" },
       { metric: "Colaboradores x mes", value: analytics.records, type: "number" },
       { metric: "Folha bruta", value: analytics.grossTotal, type: "currency" },
-      { metric: "Proventos", value: analytics.provents, type: "currency" },
-      { metric: "Ferias gozadas", value: analytics.vacationsTakenGross, type: "currency" },
-      { metric: "Rescisoes - bruto", value: analytics.resignationGross, type: "currency" },
-      { metric: "Encargos patronais", value: analytics.chargesTotal, type: "currency" },
+      { metric: "Remuneracao", value: analytics.remuneration, type: "currency" },
+      { metric: "Salario maternidade", value: analytics.maternity, type: "currency" },
+      { metric: "Pro-labore", value: analytics.proLabore, type: "currency" },
+      { metric: "FGTS folha", value: analytics.chargesTotal, type: "currency" },
       { metric: "Descontos", value: analytics.discounts, type: "currency" },
       { metric: "Liquido", value: analytics.net, type: "currency" },
       { metric: "Admissoes", value: analytics.admissions.length, type: "number" },
       { metric: "Rescisoes", value: analytics.resignations.length, type: "number" },
       { metric: "Alertas", value: analytics.alerts.length, type: "number" },
-      { metric: "Horas extras 50%", value: analytics.overtimeTotals.hours50, type: "number" },
-      { metric: "Horas extras 100%", value: analytics.overtimeTotals.hours100, type: "number" },
+      ...overtimeCategories.map((category) => ({ metric: category.label, value: analytics.overtimeTotals[`${category.suffix}Hours`], type: "number" })),
       { metric: "Reflexos HE", value: analytics.overtimeTotals.reflectionValue, type: "currency" },
       { metric: "Atestados - horas", value: sum(analytics.medicalCertificates, medicalCertificateHours), type: "number" },
       { metric: "Atestados - valor", value: sum(analytics.medicalCertificates, medicalCertificateValue), type: "currency" },
@@ -2789,10 +2853,10 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
       { header: "Bruto", key: "gross", width: 16 },
       { header: "Descontos", key: "discounts", width: 16 },
       { header: "Liquido", key: "net", width: 16 },
-      { header: "HE 50 h", key: "overtime50Hours", width: 12 },
-      { header: "HE 50 valor", key: "overtime50Value", width: 16 },
-      { header: "HE 100 h", key: "overtime100Hours", width: 12 },
-      { header: "HE 100 valor", key: "overtime100Value", width: 16 },
+      ...overtimeCategories.flatMap((category) => [
+        { header: `${category.label} h`, key: `overtime${category.suffix}Hours`, width: 14 },
+        { header: `${category.label} valor`, key: `overtime${category.suffix}Value`, width: 18 },
+      ]),
       { header: "Reflexos HE h", key: "overtimeReflectionHours", width: 14 },
       { header: "Reflexos HE", key: "overtimeReflectionValue", width: 16 },
       { header: "Faltas/Atrasos h", key: "absenceHours", width: 16 },
@@ -2813,10 +2877,10 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
       gross: item.gross,
       discounts: item.discounts,
       net: item.net,
-      overtime50Hours: item.overtime50Hours,
-      overtime50Value: item.overtime50Value,
-      overtime100Hours: item.overtime100Hours,
-      overtime100Value: item.overtime100Value,
+      ...Object.fromEntries(overtimeCategories.flatMap((category) => [
+        [`overtime${category.suffix}Hours`, item[`overtime${category.suffix}Hours`]],
+        [`overtime${category.suffix}Value`, item[`overtime${category.suffix}Value`]],
+      ])),
       overtimeReflectionHours: item.overtimeReflectionHours,
       overtimeReflectionValue: item.overtimeReflectionValue,
       absenceHours: item.absenceHours,
@@ -2827,7 +2891,7 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
       medicalCertificateHours: item.medicalCertificateHours,
       medicalCertificateValue: item.medicalCertificateValue,
     })),
-    { currencyKeys: new Set(["gross", "discounts", "net", "overtime50Value", "overtime100Value", "overtimeReflectionValue", "absenceValue", "loans", "vacations", "vacationTerminations", "medicalCertificateValue"]) },
+    { currencyKeys: new Set(["gross", "discounts", "net", ...overtimeCategories.map((category) => `overtime${category.suffix}Value`), "overtimeReflectionValue", "absenceValue", "loans", "vacations", "vacationTerminations", "medicalCertificateValue"]) },
   );
 
   addSheet(
@@ -2859,10 +2923,10 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
     "Horas Extras",
     [
       ...personColumns(),
-      { header: "HE 50 h", key: "hours50", width: 12 },
-      { header: "HE 50 valor", key: "value50", width: 16 },
-      { header: "HE 100 h", key: "hours100", width: 12 },
-      { header: "HE 100 valor", key: "value100", width: 16 },
+      ...overtimeCategories.flatMap((category) => [
+        { header: `${category.label} h`, key: `${category.suffix}Hours`, width: 14 },
+        { header: `${category.label} valor`, key: `${category.suffix}Value`, width: 18 },
+      ]),
       { header: "Reflexos h", key: "reflectionHours", width: 12 },
       { header: "Reflexos HE", key: "reflectionValue", width: 16 },
       { header: "Total h", key: "totalHours", width: 12 },
@@ -2874,16 +2938,16 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
       contract: item.contract,
       name: item.name,
       jobTitle: item.jobTitle || "",
-      hours50: item.hours50,
-      value50: item.value50,
-      hours100: item.hours100,
-      value100: item.value100,
+      ...Object.fromEntries(overtimeCategories.flatMap((category) => [
+        [`${category.suffix}Hours`, item[`${category.suffix}Hours`]],
+        [`${category.suffix}Value`, item[`${category.suffix}Value`]],
+      ])),
       reflectionHours: item.reflectionHours || 0,
       reflectionValue: item.reflectionValue || 0,
       totalHours: item.totalHours,
       totalValue: item.totalValue,
     })),
-    { currencyKeys: new Set(["value50", "value100", "reflectionValue", "totalValue"]) },
+    { currencyKeys: new Set([...overtimeCategories.map((category) => `${category.suffix}Value`), "reflectionValue", "totalValue"]) },
   );
 
   addSheet(
@@ -2936,6 +3000,7 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
       { header: "Comissoes", key: "commissions", width: 16 },
       { header: "Premios", key: "premiums", width: 16 },
       { header: "Adicionais", key: "additionals", width: 16 },
+      { header: "Beneficios", key: "benefits", width: 16 },
       { header: "Total", key: "total", width: 16 },
     ],
     analytics.variableTop.map((item) => ({
@@ -2947,9 +3012,10 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
       commissions: item.commissions,
       premiums: item.premiums,
       additionals: item.additionals,
+      benefits: item.benefits,
       total: item.total,
     })),
-    { currencyKeys: new Set(["commissions", "premiums", "additionals", "total"]) },
+    { currencyKeys: new Set(["commissions", "premiums", "additionals", "benefits", "total"]) },
   );
 
   addSheet(
@@ -3108,7 +3174,7 @@ async function exportWorkbook(rows, dataset, filteredAnalytics = null) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `florybal-rh-bi-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  link.download = `pegada-rh-bi-${new Date().toISOString().slice(0, 10)}.xlsx`;
   link.click();
   URL.revokeObjectURL(url);
 }

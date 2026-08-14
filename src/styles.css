@@ -76,10 +76,7 @@ a { color: inherit; }
   pointer-events: none;
 }
 
-.workspace-heading { position: relative; z-index: 4; margin: 0 auto 24px; text-align: center; }
-.workspace-heading > span, .login-eyebrow { color: rgba(20,62,119,.62); font-size: 9px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
-.workspace-heading h1 { margin: 7px 0 7px; font-size: clamp(30px, 3.2vw, 43px); line-height: 1.05; letter-spacing: 0; }
-.workspace-heading p { margin: 0; color: rgba(34,61,99,.7); font-size: 12px; }
+.login-eyebrow { color: rgba(20,62,119,.62); font-size: 9px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
 
 .environment-grid {
   position: relative;
@@ -224,8 +221,6 @@ a { color: inherit; }
   .protected-label { width: 38px; height: 38px; justify-content: center; overflow: hidden; font-size: 0; white-space: nowrap; }
   .protected-label svg { flex: 0 0 auto; }
   .workspace-stage { width: min(100% - 28px, 520px); padding: 32px 0 26px; }
-  .workspace-heading { margin-bottom: 18px; }
-  .workspace-heading p { max-width: 390px; margin-inline: auto; }
   .environment-grid { grid-template-columns: 1fr; }
   .environment-card { min-height: 210px; padding: 18px; }
   .environment-logo { min-height: 150px; padding: 12px; }
@@ -245,7 +240,6 @@ a { color: inherit; }
 @media (max-width: 430px) {
   .workspace-header { padding: 10px 14px; }
   .workspace-brand { width: 150px; }
-  .workspace-heading h1 { font-size: 27px; }
   .login-brand { display: none; }
 }
 

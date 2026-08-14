@@ -1,0 +1,75 @@
+{
+  "remuneration_earnings": [
+    { "kind": "Remuneracao", "codes": ["00001", "00002", "00003", "00005", "00007", "00010", "00014", "00020", "00021", "00022", "00025", "00026", "00030", "00031", "00061", "00062", "00064", "00065", "00068", "00081", "00083", "00092", "00093", "00772", "00813", "00819", "00840", "00841", "00844"] }
+  ],
+  "remuneration_discounts": [
+    { "kind": "Desconto remuneracao", "codes": ["00201", "00202", "00203", "00247", "00254", "00283"] }
+  ],
+  "maternity": [
+    { "kind": "Salario maternidade", "codes": ["00004", "00107", "00333", "00337", "00338"] }
+  ],
+  "pro_labore": [
+    { "kind": "Pro-labore", "codes": ["00012"] }
+  ],
+  "overtime": [
+    { "kind": "50", "codes": ["00025"] },
+    { "kind": "55", "codes": ["00176"] },
+    { "kind": "65", "codes": ["00177"] },
+    { "kind": "70", "codes": ["00027", "00128"] },
+    { "kind": "100", "codes": ["00026", "00129"] },
+    { "kind": "Banco 50", "codes": ["00127"] }
+  ],
+  "overtime_reflexes": [
+    { "kind": "Reflexo HE", "codes": ["00030"] }
+  ],
+  "medical_certificates": [
+    { "kind": "Atestado atual", "codes": ["00014"] },
+    { "kind": "Atestado mes anterior", "codes": ["00844"] }
+  ],
+  "absence": [
+    { "kind": "Faltas", "codes": ["00201"] },
+    { "kind": "Atrasos", "codes": ["00202"] },
+    { "kind": "Repousos descontados", "codes": ["00203"] },
+    { "kind": "Faltas comprovadas", "codes": ["00247"] },
+    { "kind": "Dispensa nao remunerada", "codes": ["00254"] },
+    { "kind": "Falta convocacao", "codes": ["00283"] },
+    { "kind": "Suspensao", "codes": ["00288"] },
+    { "kind": "Ausencias justificadas", "codes": ["00819"] }
+  ],
+  "variables": [
+    { "kind": "Comissoes", "codes": ["00028", "00029"] },
+    { "kind": "Premios", "codes": ["00015"] },
+    { "kind": "Bonus", "codes": ["00093", "00145"] },
+    { "kind": "Gratificacoes", "codes": ["00134", "00172"] },
+    { "kind": "Adicionais", "codes": ["00020", "00021", "00022", "00031"] },
+    { "kind": "Beneficios", "codes": ["00092", "00906"] }
+  ],
+  "loans": [
+    { "kind": "Consignado", "codes": ["61501", "61502", "61503", "61504", "61505", "61506", "61507", "61508", "61509"], "excludeDescriptionIncludesAny": ["estorno", "provisao"] }
+  ],
+  "vacations": [
+    { "kind": "Ferias", "codes": ["00061", "00062", "00064", "00065", "00066", "00067", "00068", "00069", "00081", "00083"] }
+  ],
+  "vacation_termination": [
+    { "kind": "Ferias rescisorias", "codes": ["00070", "00071", "00074", "00075", "00076", "00077", "00079", "00087", "00088"] }
+  ],
+  "resignation": [
+    { "kind": "Verbas rescisorias", "codes": ["00041", "00045", "00052", "00054", "00055", "00057", "00058", "00059", "00813", "00070", "00071", "00074", "00075", "00076", "00077", "00079", "00087", "00088"] }
+  ],
+  "known_other": [
+    { "kind": "Bases", "codes": ["00408", "00409", "00438", "00440", "00441", "00442", "00444", "00445", "00447", "00448", "00449", "00451", "00452", "00453", "00454", "00461", "00462", "00463", "00470", "00471", "00472", "00473", "00474", "00475", "00476", "00478", "00479", "00493", "00494", "00497", "00498", "00499", "00500", "71198", "71199", "77102", "77302", "78901", "78902", "78903", "79502", "79512", "79522"] },
+    { "kind": "Descontos legais", "codes": ["00381", "00382", "00383", "00384", "00385", "00391", "00392", "00399"] },
+    { "kind": "Afastamentos", "codes": ["00006", "00662"] },
+    { "kind": "Autonomos", "codes": ["00111"] },
+    { "kind": "Salario familia", "codes": ["00036", "00722"] },
+    { "kind": "Ajustes de ferias", "codes": ["00197", "00340"] },
+    { "kind": "Antecipacoes de 13 salario", "codes": ["00051", "00209", "00210", "52302", "52304"] },
+    { "kind": "Pensoes e descontos judiciais", "codes": ["00206", "00215", "00216", "00258", "00270"] },
+    { "kind": "Beneficios e convenios diversos", "codes": ["00039", "00239", "00243", "00246", "00257", "00289", "00726"] },
+    { "kind": "Ajustes de saldo", "codes": ["00199", "00341"] },
+    { "kind": "Desconto de banco de horas", "codes": ["00263"] },
+    { "kind": "Adiantamentos", "descriptionIncludesAny": ["adiantamento", "adianto", "insuficiencia"] },
+    { "kind": "Consignado excluido", "descriptionIncludes": ["consign"], "descriptionIncludesAny": ["provis", "estorno"] },
+    { "kind": "Beneficios e descontos", "descriptionIncludesAny": ["vale", "unimed", "sindicato", "pensao", "convenio", "refeicao", "farmacia", "doctor"] }
+  ]
+}

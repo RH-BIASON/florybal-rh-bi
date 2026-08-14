@@ -1,13 +1,13 @@
 {
-  "name": "florybal-rh-bi",
+  "name": "pegada-rh-bi",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite --host 127.0.0.1 --port 5173\" \"node server/index.js\"",
+    "dev": "concurrently \"vite --host 127.0.0.1 --port 5174\" \"node server/index.js\"",
     "build": "vite build",
     "start": "node server/index.js",
-    "parse": "python scripts/parse_payroll.py \"FOPAG Florybal 122025.pdf\" \"FOPAG Florybal 012026.pdf\" \"FOPAG Florybal 022026.pdf\" \"FOPAG Florybal 032026.pdf\" \"FOPAG Florybal 042026.pdf\" --out data/payroll.json",
+    "parse": "python scripts/parse_payroll.py \"F:/Pastas Pessoais/Lucas G/RESUMO GERAL ANALITICO 072026.pdf\" \"C:/Users/lucasg/Desktop/prov Ferias.pdf\" \"C:/Users/lucasg/Desktop/prov 13 salario.pdf\" \"C:/Users/lucasg/Desktop/Saldo ferias geral.pdf\" --out data/payroll.json",
     "test:parser": "python -m unittest scripts.test_parser",
     "test:reports": "python -m unittest scripts.test_report_parsers",
     "test:server": "node --test scripts/test_dataset_merge.mjs",

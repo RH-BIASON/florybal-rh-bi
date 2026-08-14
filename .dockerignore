@@ -2,9 +2,17 @@
 .gitignore
 node_modules
 Florybal/node_modules
+Pegada/node_modules
 portal-dist
 Florybal/dist
+Pegada/dist
 Florybal/data
+Pegada/data
 Florybal/postgres-data
+Pegada/postgres-data
+Florybal/.agents
+Florybal/.codex
+Pegada/.agents
+Pegada/.codex
 *.pdf
 *.log

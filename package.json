@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4001",
-    "build": "vite build && npm --prefix Florybal run build",
+    "build": "vite build && npm --prefix Florybal run build && npm --prefix Pegada run build",
     "start": "node Florybal/server/index.js"
   },
   "dependencies": {
